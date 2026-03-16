@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "example-server": {
+      "transport": "streamable_http",
+      "endpoint": "https://example.com/mcp",
+      "headers": {
+        "EXAMPLE_API_KEY": "replace-me"
+      },
+      "enabled": false
+    }
+  }
+}

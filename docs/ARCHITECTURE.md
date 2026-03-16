@@ -1,0 +1,251 @@
+# ARCHITECTURE
+
+## Context
+
+`Aurelia` is a local-first autonomous coding agent built in Go.
+
+The system operates through Telegram, persists operational state in SQLite, and executes work through an explicit runtime made of:
+
+- a ReAct loop
+- a live tool registry
+- Agent Teams orchestration
+- layered memory
+- controlled local execution
+- optional MCP integration
+
+This document is the architectural source of truth for the current codebase.
+
+Use it together with:
+
+- `AGENTS.md`
+- `docs/STYLE_GUIDE.md`
+- `docs/LEARNINGS.md`
+
+## Architectural Shape
+
+The project is a modular monolith in Go.
+
+```text
+/cmd/aurelia/
+  main.go          [thin entrypoint]
+  app.go           [composition root]
+  wiring.go        [dependency and tool registration]
+
+/internal/
+  agent/           [loop, tool registry, team manager, task graph, recovery]
+  config/          [configuration loading]
+  cron/            [store, service, scheduler, runtime]
+  mcp/             [manager, discovery, transport]
+  memory/          [messages, facts, notes, archive]
+  persona/         [canonical identity, prompt building, retrieval, file sync]
+  runtime/         [instance and project path resolution]
+  skill/           [skill loading and routing]
+  telegram/        [handlers, bootstrap, input pipeline, output]
+  tools/           [tool definitions, handlers, MCP adapter]
+
+/pkg/
+  llm/             [HTTP providers]
+  stt/             [speech-to-text]
+```
+
+Current code still contains legacy repository names and paths.
+Those are implementation details under migration, not the product identity to preserve.
+
+## Runtime Scope Separation
+
+The runtime distinguishes three scopes:
+
+### Repository
+
+Contains:
+
+- source code
+- tests
+- project documentation
+- default assets shipped with the product
+
+### Local Instance
+
+Lives outside the repository in a per-user hidden directory.
+
+Contains:
+
+- local config
+- SQLite state
+- logs
+- learned notes
+- runtime skills
+- canonical persona files
+
+### Target Project
+
+The external codebase the agent is acting on.
+
+It may define project-specific docs and working conventions.
+
+Project-specific rules must not leak into global defaults unless explicitly promoted.
+
+## Layer Boundaries
+
+### Entry And Wiring
+
+`cmd/aurelia` is responsible for:
+
+- loading configuration
+- building services
+- registering tools
+- starting and stopping runtimes
+
+It must stay thin.
+
+### Interface Layer
+
+`internal/telegram` is the interface boundary.
+
+Responsibilities:
+
+- receiving Telegram events
+- adapting text, files, and audio into internal input
+- sending output back to Telegram
+
+It must not become the source of truth for business rules.
+
+### Domain And Orchestration
+
+`internal/agent` is the center of execution behavior.
+
+Responsibilities:
+
+- ReAct loop
+- tool execution contracts
+- Agent Teams orchestration
+- task graph
+- recovery
+
+### Memory And Identity
+
+`internal/memory` persists:
+
+- recent messages
+- durable facts
+- compact notes
+- raw archive
+
+`internal/persona` resolves:
+
+- canonical identity
+- prompt assembly
+- file synchronization
+- owner and project context injection
+- retrieval helpers
+
+Important rule:
+
+- identity and operating rules come from canonical persona and project context
+- actual runtime capabilities come from the live tool registry
+
+### Tooling
+
+`internal/tools` owns:
+
+- native tool definitions
+- handler contracts
+- schedule tools
+- MCP registration adapters
+- team mailbox and control tools
+
+Tool schemas belong here, not in the composition root.
+
+## Core Runtime Model
+
+### ReAct Execution
+
+The main loop is tool-driven.
+
+The runtime injects:
+
+- available tools
+- execution guidance
+- workdir guidance
+- runtime capabilities
+
+The agent must reason from real capabilities, not assumed capabilities.
+
+### Agent Teams
+
+The multi-agent model is master-led.
+
+Rules:
+
+- `master` is the only agent that answers the end user
+- workers operate on explicit tasks
+- tasks carry status, ownership, dependencies, result, and canonical `workdir`
+- workers may coordinate through internal mailbox tools
+- operational team state should persist in SQLite whenever possible
+
+### Memory
+
+The memory model is deterministic and layered.
+
+Priority order:
+
+1. canonical identity
+2. stable facts
+3. episodic notes
+4. recent conversation window
+
+The architecture explicitly avoids treating larger prompts or vector search as the default fix for identity and continuity problems.
+
+### Local Execution
+
+The runtime is expected to observe the environment, not only describe it.
+
+That includes:
+
+- reading files
+- writing files
+- listing directories
+- running controlled local commands
+- acting on a canonical project `workdir`
+
+## Architectural Rules
+
+1. Telegram is an interface layer, not a domain layer.
+2. Identity and memory rules belong in `persona` and `memory`.
+3. Multi-agent orchestration belongs in `agent`.
+4. Long-lived operational state should persist in SQLite when practical.
+5. Tools are explicit runtime capabilities, not hidden side channels.
+6. New code should preserve the modular monolith shape instead of adding ad hoc service sprawl.
+7. Workers operating on external projects must preserve canonical `workdir` across local tools.
+8. Architecture changes must be reflected here before the task is considered complete.
+
+## Current Capabilities
+
+Implemented in the current codebase:
+
+- tool-driven ReAct loop
+- Agent Teams orchestration with task graph, mailbox, recovery, and final synthesis
+- SQLite-backed memory and operational persistence
+- Telegram text, markdown, and audio input flow
+- cron scheduling subsystem
+- MCP discovery and registration
+- project-aware execution through propagated `workdir`
+
+## Current Constraints
+
+Known constraints in the current codebase:
+
+- repository naming still reflects the old product identity
+- some documentation is still transitional and overlaps with future canonical docs
+- benchmark evidence for memory and CPU footprint is not yet documented
+- contribution governance and GitHub policy gates are not fully established yet
+
+## Documentation Policy
+
+This file captures architecture and boundaries.
+
+Implementation conventions belong in `docs/STYLE_GUIDE.md`.
+
+Operational mistakes, traps, and recurring lessons belong in `docs/LEARNINGS.md`.
+
+

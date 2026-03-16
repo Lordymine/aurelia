@@ -1,0 +1,9 @@
+* @kocar
+
+/cmd/ @kocar
+/internal/agent/ @kocar
+/internal/config/ @kocar
+/internal/mcp/ @kocar
+/internal/runtime/ @kocar
+/docs/ @kocar
+/.github/ @kocar

@@ -1,0 +1,75 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool, specifically when used with LiteIDE
+*.out
+
+# Dependency directories (remove the comment below to include it)
+# vendor/
+
+# Workspace file
+go.work
+
+# Go build cache
+.cache/
+
+# Environment Variables
+.env
+.env.local
+.env.*
+!.env.example
+
+# Database
+*.db
+*.db.*
+*.sqlite
+*.sqlite.*
+*.sqlite3
+*.sqlite3.*
+data/*.db
+data/*.db.*
+data/*.sqlite
+data/*.sqlite3
+data/*.db-journal
+data/*.sqlite-journal
+data/*.sqlite3-journal
+
+# Temporary Files
+tmp/
+logs/
+.DS_Store
+kimi_debug.txt
+*_debug.txt
+mcp_servers.json
+
+# IDEs
+.vscode/
+.idea/
+
+# Custom Ignore (Example Code)
+codigo-exemplo/
+codigo-e-cognicao/
+tmp_kimi.go
+
+# Persona files (instance data — belongs in ~/.aurelia/)
+IDENTITY.md
+SOUL.md
+USER.md
+
+# Skills and per-project runtime state
+.aurelia/
+.aurelia/
+specs/
+
+# Claude Code (local dev tooling)
+.claude/
+
+# Local planning workspace
+.planning/
