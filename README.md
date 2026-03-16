@@ -179,6 +179,15 @@ Canonical documents for ongoing work:
 - [docs/LEARNINGS.md](docs/LEARNINGS.md)
 - [docs/BENCHMARKS.md](docs/BENCHMARKS.md)
 
+Recommended reading order:
+
+1. `README.md`
+2. `AGENTS.md`
+3. `docs/ARCHITECTURE.md`
+4. `docs/STYLE_GUIDE.md`
+5. `docs/LEARNINGS.md`
+6. `docs/BENCHMARKS.md`
+
 ## Current State
 
 - the active codebase runs under the `Aurelia` identity
