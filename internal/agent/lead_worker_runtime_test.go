@@ -425,8 +425,6 @@ func TestMasterTeamService_ReusesPersistentWorkerLoopPerAgent(t *testing.T) {
 		t.Fatalf("Spawn(task two) error = %v", err)
 	}
 
-	time.Sleep(150 * time.Millisecond)
-
 	service.mu.Lock()
 	defer service.mu.Unlock()
 	if len(service.workerLoops) != 1 {
