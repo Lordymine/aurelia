@@ -3,6 +3,7 @@ package skill
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -112,7 +113,11 @@ func TestLoader_DuplicateName(t *testing.T) {
 		t.Fatal("expected 'Shared Skill' in map")
 	}
 	// dir2 should win — DirPath should be inside dir2
-	if !filepath.HasPrefix(s.DirPath, dir2) {
+	rel, err := filepath.Rel(dir2, s.DirPath)
+	if err != nil {
+		t.Fatalf("filepath.Rel() error = %v", err)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		t.Errorf("expected DirPath under dir2 (%s), got %s", dir2, s.DirPath)
 	}
 }

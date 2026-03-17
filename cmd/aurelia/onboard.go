@@ -90,13 +90,25 @@ func runOnboard(stdin io.Reader, stdout io.Writer) error {
 func runOnboardPrompt(stdin io.Reader, stdout io.Writer, resolver *runtime.PathResolver, current *config.EditableConfig) error {
 	reader := bufio.NewReader(stdin)
 
-	fmt.Fprint(stdout, renderOnboardingHeader())
-	fmt.Fprintf(stdout, "Config file: %s\n", resolver.AppConfig())
-	fmt.Fprintln(stdout, "Press Enter to keep the current value.")
-	fmt.Fprintln(stdout)
+	if err := writeString(stdout, renderOnboardingHeader()); err != nil {
+		return err
+	}
+	if err := writef(stdout, "Config file: %s\n", resolver.AppConfig()); err != nil {
+		return err
+	}
+	if err := writeln(stdout, "Press Enter to keep the current value."); err != nil {
+		return err
+	}
+	if err := writeln(stdout, ""); err != nil {
+		return err
+	}
 
-	fmt.Fprintf(stdout, "LLM provider [%s]: %s\n", current.LLMProvider, "Kimi")
-	fmt.Fprintf(stdout, "STT provider [%s]: %s\n\n", current.STTProvider, "Groq")
+	if err := writef(stdout, "LLM provider [%s]: %s\n", current.LLMProvider, "Kimi"); err != nil {
+		return err
+	}
+	if err := writef(stdout, "STT provider [%s]: %s\n\n", current.STTProvider, "Groq"); err != nil {
+		return err
+	}
 
 	current.KimiAPIKey, _ = promptString(reader, stdout, "Kimi API key", current.KimiAPIKey, true)
 	current.GroqAPIKey, _ = promptString(reader, stdout, "Groq API key", current.GroqAPIKey, true)
@@ -112,8 +124,7 @@ func runOnboardPrompt(stdin io.Reader, stdout io.Writer, resolver *runtime.PathR
 		return fmt.Errorf("save app config: %w", err)
 	}
 
-	renderSavedSummary(stdout, resolver, current)
-	return nil
+	return renderSavedSummary(stdout, resolver, current)
 }
 
 func runOnboardTUI(stdin *os.File, stdout *os.File, resolver *runtime.PathResolver, current *config.EditableConfig) error {
@@ -142,7 +153,9 @@ func runOnboardTUI(stdin *os.File, stdout *os.File, resolver *runtime.PathResolv
 		}
 		if cancelled {
 			clearScreen(stdout)
-			fmt.Fprintln(stdout, "Onboarding canceled.")
+			if err := writeln(stdout, "Onboarding canceled."); err != nil {
+				return err
+			}
 			return nil
 		}
 		if saved {
@@ -150,8 +163,7 @@ func runOnboardTUI(stdin *os.File, stdout *os.File, resolver *runtime.PathResolv
 				return fmt.Errorf("save app config: %w", err)
 			}
 			clearScreen(stdout)
-			renderSavedSummary(stdout, resolver, &ui.cfg)
-			return nil
+			return renderSavedSummary(stdout, resolver, &ui.cfg)
 		}
 	}
 }
@@ -174,8 +186,8 @@ func (u *onboardingUI) View(resolver *runtime.PathResolver) string {
 	var b strings.Builder
 	b.WriteString("\x1b[2J\x1b[H")
 	b.WriteString(renderOnboardingHeader())
-	b.WriteString(fmt.Sprintf("Config file: %s\n", resolver.AppConfig()))
-	b.WriteString(fmt.Sprintf("Step %d/9\n\n", int(u.step)+1))
+	_, _ = fmt.Fprintf(&b, "Config file: %s\n", resolver.AppConfig())
+	_, _ = fmt.Fprintf(&b, "Step %d/9\n\n", int(u.step)+1)
 	if u.message != "" {
 		b.WriteString(colorize("! "+u.message, colorBlue))
 		b.WriteString("\n\n")
@@ -207,14 +219,14 @@ func (u *onboardingUI) View(resolver *runtime.PathResolver) string {
 	case stepReview:
 		b.WriteString("Review & Save\n")
 		b.WriteString("Check the config before saving.\n\n")
-		b.WriteString(fmt.Sprintf("LLM provider: %s\n", strings.ToUpper(u.cfg.LLMProvider)))
-		b.WriteString(fmt.Sprintf("Kimi API key: %s\n", maskSecret(u.cfg.KimiAPIKey)))
-		b.WriteString(fmt.Sprintf("STT provider: %s\n", strings.ToUpper(u.cfg.STTProvider)))
-		b.WriteString(fmt.Sprintf("Groq API key: %s\n", maskSecret(u.cfg.GroqAPIKey)))
-		b.WriteString(fmt.Sprintf("Telegram bot token: %s\n", maskSecret(u.cfg.TelegramBotToken)))
-		b.WriteString(fmt.Sprintf("Telegram allowed user IDs: %s\n", formatInt64List(u.cfg.TelegramAllowedUserIDs)))
-		b.WriteString(fmt.Sprintf("Max iterations: %d\n", u.cfg.MaxIterations))
-		b.WriteString(fmt.Sprintf("Memory window size: %d\n\n", u.cfg.MemoryWindowSize))
+		_, _ = fmt.Fprintf(&b, "LLM provider: %s\n", strings.ToUpper(u.cfg.LLMProvider))
+		_, _ = fmt.Fprintf(&b, "Kimi API key: %s\n", maskSecret(u.cfg.KimiAPIKey))
+		_, _ = fmt.Fprintf(&b, "STT provider: %s\n", strings.ToUpper(u.cfg.STTProvider))
+		_, _ = fmt.Fprintf(&b, "Groq API key: %s\n", maskSecret(u.cfg.GroqAPIKey))
+		_, _ = fmt.Fprintf(&b, "Telegram bot token: %s\n", maskSecret(u.cfg.TelegramBotToken))
+		_, _ = fmt.Fprintf(&b, "Telegram allowed user IDs: %s\n", formatInt64List(u.cfg.TelegramAllowedUserIDs))
+		_, _ = fmt.Fprintf(&b, "Max iterations: %d\n", u.cfg.MaxIterations)
+		_, _ = fmt.Fprintf(&b, "Memory window size: %d\n\n", u.cfg.MemoryWindowSize)
 		b.WriteString(renderMenu(u.reviewOptions, u.menuIndex))
 		b.WriteString("\nUse ↑/↓ and Enter. Use ← to go back. Press Ctrl+C to cancel.\n")
 	}
@@ -422,15 +434,21 @@ func renderMenu(options []string, selected int) string {
 }
 
 func promptString(reader *bufio.Reader, stdout io.Writer, label, current string, secret bool) (string, error) {
-	fmt.Fprintf(stdout, "%s", label)
+	if err := writef(stdout, "%s", label); err != nil {
+		return "", err
+	}
 	if current != "" {
 		display := current
 		if secret {
 			display = maskSecret(current)
 		}
-		fmt.Fprintf(stdout, " [%s]", display)
+		if err := writef(stdout, " [%s]", display); err != nil {
+			return "", err
+		}
 	}
-	fmt.Fprint(stdout, ": ")
+	if err := writeString(stdout, ": "); err != nil {
+		return "", err
+	}
 
 	line, err := readLine(reader)
 	if err != nil {
@@ -443,7 +461,9 @@ func promptString(reader *bufio.Reader, stdout io.Writer, label, current string,
 }
 
 func promptInt(reader *bufio.Reader, stdout io.Writer, label string, current int) (int, error) {
-	fmt.Fprintf(stdout, "%s [%d]: ", label, current)
+	if err := writef(stdout, "%s [%d]: ", label, current); err != nil {
+		return 0, err
+	}
 
 	line, err := readLine(reader)
 	if err != nil {
@@ -461,11 +481,17 @@ func promptInt(reader *bufio.Reader, stdout io.Writer, label string, current int
 }
 
 func promptInt64List(reader *bufio.Reader, stdout io.Writer, label string, current []int64) ([]int64, error) {
-	fmt.Fprintf(stdout, "%s", label)
-	if len(current) != 0 {
-		fmt.Fprintf(stdout, " [%s]", formatInt64List(current))
+	if err := writef(stdout, "%s", label); err != nil {
+		return nil, err
 	}
-	fmt.Fprint(stdout, ": ")
+	if len(current) != 0 {
+		if err := writef(stdout, " [%s]", formatInt64List(current)); err != nil {
+			return nil, err
+		}
+	}
+	if err := writeString(stdout, ": "); err != nil {
+		return nil, err
+	}
 
 	line, err := readLine(reader)
 	if err != nil {
@@ -579,17 +605,38 @@ func clearScreen(w io.Writer) {
 	_, _ = io.WriteString(w, "\x1b[2J\x1b[H")
 }
 
-func renderSavedSummary(stdout io.Writer, resolver *runtime.PathResolver, current *config.EditableConfig) {
-	fmt.Fprint(stdout, renderOnboardingHeader())
-	fmt.Fprintf(stdout, "Saved config to %s\n", resolver.AppConfig())
-	fmt.Fprintf(stdout, "LLM provider: %s\n", strings.ToUpper(current.LLMProvider))
-	fmt.Fprintf(stdout, "Kimi API key: %s\n", maskSecret(current.KimiAPIKey))
-	fmt.Fprintf(stdout, "STT provider: %s\n", strings.ToUpper(current.STTProvider))
-	fmt.Fprintf(stdout, "Groq API key: %s\n", maskSecret(current.GroqAPIKey))
-	fmt.Fprintf(stdout, "Telegram bot token: %s\n", maskSecret(current.TelegramBotToken))
-	fmt.Fprintf(stdout, "Telegram allowed user IDs: %s\n", formatInt64List(current.TelegramAllowedUserIDs))
-	fmt.Fprintf(stdout, "Max iterations: %d\n", current.MaxIterations)
-	fmt.Fprintf(stdout, "Memory window size: %d\n", current.MemoryWindowSize)
+func renderSavedSummary(stdout io.Writer, resolver *runtime.PathResolver, current *config.EditableConfig) error {
+	if err := writeString(stdout, renderOnboardingHeader()); err != nil {
+		return err
+	}
+	if err := writef(stdout, "Saved config to %s\n", resolver.AppConfig()); err != nil {
+		return err
+	}
+	if err := writef(stdout, "LLM provider: %s\n", strings.ToUpper(current.LLMProvider)); err != nil {
+		return err
+	}
+	if err := writef(stdout, "Kimi API key: %s\n", maskSecret(current.KimiAPIKey)); err != nil {
+		return err
+	}
+	if err := writef(stdout, "STT provider: %s\n", strings.ToUpper(current.STTProvider)); err != nil {
+		return err
+	}
+	if err := writef(stdout, "Groq API key: %s\n", maskSecret(current.GroqAPIKey)); err != nil {
+		return err
+	}
+	if err := writef(stdout, "Telegram bot token: %s\n", maskSecret(current.TelegramBotToken)); err != nil {
+		return err
+	}
+	if err := writef(stdout, "Telegram allowed user IDs: %s\n", formatInt64List(current.TelegramAllowedUserIDs)); err != nil {
+		return err
+	}
+	if err := writef(stdout, "Max iterations: %d\n", current.MaxIterations); err != nil {
+		return err
+	}
+	if err := writef(stdout, "Memory window size: %d\n", current.MemoryWindowSize); err != nil {
+		return err
+	}
+	return nil
 }
 
 func renderOnboardingHeader() string {
@@ -619,4 +666,19 @@ $$ |  $$ |\$$$$$$  |$$ |  $$ |$$$$$$$$\ $$$$$$$$\ $$$$$$\ $$ |  $$ |
 
 func colorize(text, color string) string {
 	return color + text + colorReset
+}
+
+func writeString(w io.Writer, text string) error {
+	_, err := io.WriteString(w, text)
+	return err
+}
+
+func writef(w io.Writer, format string, args ...any) error {
+	_, err := fmt.Fprintf(w, format, args...)
+	return err
+}
+
+func writeln(w io.Writer, text string) error {
+	_, err := fmt.Fprintln(w, text)
+	return err
 }
