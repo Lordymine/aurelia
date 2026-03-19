@@ -112,3 +112,23 @@ func TestAnthropicProviderGenerateContent_ToolUseResponse(t *testing.T) {
 		t.Fatalf("tool args = %#v", resp.ToolCalls[0].Arguments)
 	}
 }
+
+func TestBuildAnthropicUserBlocks_IncludesImage(t *testing.T) {
+	t.Parallel()
+
+	blocks := buildAnthropicUserBlocks(agent.Message{
+		Role:    "user",
+		Content: "describe",
+		Parts: []agent.ContentPart{
+			{Type: agent.ContentPartText, Text: "describe"},
+			{Type: agent.ContentPartImage, MIMEType: "image/jpeg", Data: []byte("jpg-bytes")},
+		},
+	})
+
+	if len(blocks) != 2 {
+		t.Fatalf("expected 2 blocks, got %d", len(blocks))
+	}
+	if blocks[1].OfImage == nil {
+		t.Fatal("expected image block")
+	}
+}

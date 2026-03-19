@@ -8,6 +8,7 @@ import (
 
 	"gopkg.in/telebot.v3"
 
+	"github.com/kocar/aurelia/internal/agent"
 	"github.com/kocar/aurelia/internal/config"
 	"github.com/kocar/aurelia/internal/memory"
 	"github.com/kocar/aurelia/internal/persona"
@@ -27,7 +28,27 @@ type BotController struct {
 	canonical        *persona.CanonicalIdentityService
 	bootstrapMu      sync.Mutex
 	pendingBootstrap map[int64]bootstrapState
+	albumMu          sync.Mutex
+	pendingAlbums    map[string]*pendingAlbum
+	mediaMu          sync.Mutex
+	recentMedia      map[string]recentMedia
 	personasDir      string
+}
+
+type pendingAlbum struct {
+	ownerMessageID int
+	caption        string
+	photos         []albumPhoto
+}
+
+type albumPhoto struct {
+	messageID int
+	photo     telebot.Photo
+}
+
+type recentMedia struct {
+	parts     []agent.ContentPart
+	updatedAt time.Time
 }
 
 // NewBotController builds the Telegram controller.
@@ -62,6 +83,8 @@ func NewBotController(
 		stt:              s,
 		canonical:        canonical,
 		pendingBootstrap: make(map[int64]bootstrapState),
+		pendingAlbums:    make(map[string]*pendingAlbum),
+		recentMedia:      make(map[string]recentMedia),
 		personasDir:      personasDir,
 	}
 
@@ -103,5 +126,3 @@ func (bc *BotController) setupRoutes() {
 	bc.setupBootstrapRoutes()
 	bc.registerContentRoutes()
 }
-
-

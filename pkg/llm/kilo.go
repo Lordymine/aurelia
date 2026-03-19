@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
+	"sync"
 )
 
 const (
@@ -15,8 +17,17 @@ const (
 
 var kiloModelsCatalogURL = kiloModelsURL
 
+var kiloVisionCache = struct {
+	mu     sync.RWMutex
+	loaded bool
+	models map[string]bool
+}{
+	models: map[string]bool{},
+}
+
 func NewKiloProvider(apiKey string, model string) *OpenAICompatibleProvider {
 	return NewOpenAICompatibleProvider(OpenAICompatibleConfig{
+		Provider:  "kilo",
 		APIKey:    apiKey,
 		BaseURL:   kiloChatCompletionsURL,
 		Model:     model,
@@ -45,9 +56,12 @@ func listKiloModels(ctx context.Context, apiKey string, baseURL string, client *
 
 	var payload struct {
 		Data []struct {
-			ID      string `json:"id"`
-			Name    string `json:"name"`
-			OwnedBy string `json:"owned_by"`
+			ID           string `json:"id"`
+			Name         string `json:"name"`
+			OwnedBy      string `json:"owned_by"`
+			Architecture struct {
+				InputModalities []string `json:"input_modalities"`
+			} `json:"architecture"`
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
@@ -67,10 +81,13 @@ func listKiloModels(ctx context.Context, apiKey string, baseURL string, client *
 			name = fmt.Sprintf("%s · %s", name, model.OwnedBy)
 		}
 		models = append(models, ModelOption{
-			ID:   model.ID,
-			Name: name,
+			ID:                 model.ID,
+			Name:               name,
+			SupportsImageInput: slices.Contains(model.Architecture.InputModalities, "image"),
+			IsFree:             strings.Contains(strings.ToLower(model.ID), ":free"),
 		})
 	}
+	cacheKiloVisionModels(models)
 	return models, nil
 }
 
@@ -84,4 +101,36 @@ func kiloModelsURLForTest(url string) func() {
 
 func containsFold(value string, needle string) bool {
 	return strings.Contains(strings.ToLower(value), strings.ToLower(needle))
+}
+
+func cacheKiloVisionModels(models []ModelOption) {
+	kiloVisionCache.mu.Lock()
+	defer kiloVisionCache.mu.Unlock()
+
+	kiloVisionCache.models = make(map[string]bool, len(models))
+	for _, model := range models {
+		kiloVisionCache.models[model.ID] = model.SupportsImageInput
+	}
+	kiloVisionCache.loaded = true
+}
+
+func kiloModelSupportsVision(modelID string) (bool, bool) {
+	kiloVisionCache.mu.RLock()
+	if kiloVisionCache.loaded {
+		value, ok := kiloVisionCache.models[modelID]
+		kiloVisionCache.mu.RUnlock()
+		return value, ok
+	}
+	kiloVisionCache.mu.RUnlock()
+
+	models, err := listKiloModels(context.Background(), "", kiloModelsCatalogURL, http.DefaultClient)
+	if err != nil {
+		return false, false
+	}
+	for _, model := range models {
+		if model.ID == modelID {
+			return model.SupportsImageInput, true
+		}
+	}
+	return false, false
 }

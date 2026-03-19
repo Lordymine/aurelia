@@ -1,6 +1,6 @@
 {
   "initiative": "provider-expansion",
-  "updated_at": "2026-03-18T12:20:00-03:00",
+  "updated_at": "2026-03-18T13:25:00-03:00",
   "current_task_id": "T11",
   "states": [
     "planned",
@@ -149,34 +149,36 @@
     },
     {
       "id": "T05",
-      "title": "Z.ai",
+      "title": "Z.ai Coding Plan",
       "provider": "zai",
       "status": "done",
       "depends_on": [
         "T04"
       ],
       "docs": [
-        "https://docs.z.ai/guides/"
+        "https://docs.z.ai/api-reference/introduction",
+        "https://docs.z.ai/devpack/tool/cursor"
       ],
       "acceptance_criteria": [
         "onboarding supports zai",
         "onboarding stores zai_api_key",
-        "runtime builds Z.ai provider",
-        "model selection uses remote catalog when available or curated fallback",
-        "docs describe endpoint behavior and limitations"
+        "runtime builds Z.ai provider against the Coding Plan endpoint",
+        "model selection uses curated Coding Plan models",
+        "docs describe Coding Plan behavior and limitations"
       ],
       "test_commands": [
         "go test ./..."
       ],
       "notes": [
         "Added Z.ai runtime support on top of the OpenAI-compatible base",
-        "Used a curated model catalog based on currently documented chat models",
-        "Validated with go test ./internal/config ./cmd/aurelia ./pkg/llm and go test ./..."
+        "Later aligned the provider to the official GLM Coding Plan endpoint at https://api.z.ai/api/coding/paas/v4/chat/completions",
+        "Reduced the curated model list to Coding Plan-friendly defaults and updated onboarding copy accordingly",
+        "Validated with go test ./pkg/llm ./cmd/aurelia ./internal/config and go test ./..."
       ]
     },
     {
       "id": "T06",
-      "title": "Alibaba",
+      "title": "Alibaba Coding Plan",
       "provider": "alibaba",
       "status": "done",
       "depends_on": [
@@ -188,17 +190,18 @@
       "acceptance_criteria": [
         "onboarding supports alibaba",
         "onboarding stores alibaba_api_key",
-        "runtime builds Alibaba provider with DashScope compatible endpoint",
-        "model selection uses remote catalog when available or curated fallback",
-        "docs describe compatibility-mode behavior"
+        "runtime builds Alibaba provider with the Coding Plan endpoint",
+        "model selection uses curated coding-focused models",
+        "docs describe Coding Plan behavior and limitations"
       ],
       "test_commands": [
         "go test ./..."
       ],
       "notes": [
         "Added Alibaba DashScope runtime support on top of the OpenAI-compatible base",
-        "Used a curated Qwen model catalog for the compatible-mode integration",
-        "Validated with go test ./internal/config ./cmd/aurelia ./pkg/llm and go test ./..."
+        "Later aligned the provider to the Coding Plan endpoint at https://coding-intl.dashscope.aliyuncs.com/v1/chat/completions",
+        "Updated curated defaults to coding-focused Qwen models and updated onboarding copy accordingly",
+        "Validated with go test ./pkg/llm ./cmd/aurelia ./internal/config and go test ./..."
       ]
     },
     {
@@ -347,6 +350,7 @@
         "Added Kilo Gateway runtime support on top of the OpenAI-compatible base",
         "Added automatic Kilo model discovery from the official /models endpoint with curated fallback models",
         "Updated onboarding, config, and docs to treat Kilo as a first-class provider",
+        "Extended the onboarding model picker with the same search UX used for OpenRouter, including filtering by model and provider",
         "Validated with go test ./internal/config ./cmd/aurelia ./pkg/llm and go test ./..."
       ]
     }

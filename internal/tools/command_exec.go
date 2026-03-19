@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -99,7 +100,8 @@ func RunCommandHandler(ctx context.Context, args map[string]interface{}) (string
 	defer cancel()
 
 	start := time.Now()
-	cmd := exec.CommandContext(runCtx, "powershell", "-NoProfile", "-Command", command)
+	shell, shellArgs := commandShell(command)
+	cmd := exec.CommandContext(runCtx, shell, shellArgs...)
 	cmd.Dir = workdir
 
 	var stdoutBuf bytes.Buffer
@@ -135,6 +137,13 @@ func RunCommandHandler(ctx context.Context, args map[string]interface{}) (string
 
 	result.ExitCode = 0
 	return marshalCommandResult(result), nil
+}
+
+func commandShell(command string) (string, []string) {
+	if runtime.GOOS == "windows" {
+		return "powershell", []string{"-NoProfile", "-Command", command}
+	}
+	return "/bin/sh", []string{"-lc", command}
 }
 
 func isBlockedCommand(command string) bool {
@@ -182,5 +191,3 @@ func marshalCommandResult(result commandResult) string {
 	}
 	return string(payload)
 }
-
-

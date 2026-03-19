@@ -2,6 +2,7 @@ package llm
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 
@@ -37,6 +38,9 @@ func (p *AnthropicProvider) GenerateContent(
 	history []agent.Message,
 	tools []agent.Tool,
 ) (*agent.ModelResponse, error) {
+	if err := ensureVisionSupport("anthropic", p.model, history); err != nil {
+		return nil, err
+	}
 	params := anthropic.MessageNewParams{
 		Model:     anthropic.Model(p.model),
 		MaxTokens: anthropicDefaultMaxTokens,
@@ -101,8 +105,29 @@ func convertAnthropicMessage(msg agent.Message) anthropic.MessageParam {
 			},
 		})
 	default:
-		return anthropic.NewUserMessage(anthropic.NewTextBlock(msg.Content))
+		return anthropic.NewUserMessage(buildAnthropicUserBlocks(msg)...)
 	}
+}
+
+func buildAnthropicUserBlocks(msg agent.Message) []anthropic.ContentBlockParamUnion {
+	if len(msg.Parts) == 0 {
+		return []anthropic.ContentBlockParamUnion{anthropic.NewTextBlock(msg.Content)}
+	}
+	blocks := make([]anthropic.ContentBlockParamUnion, 0, len(msg.Parts))
+	for _, part := range msg.Parts {
+		switch part.Type {
+		case agent.ContentPartImage:
+			blocks = append(blocks, anthropic.NewImageBlockBase64(part.MIMEType, base64.StdEncoding.EncodeToString(part.Data)))
+		default:
+			if part.Text != "" {
+				blocks = append(blocks, anthropic.NewTextBlock(part.Text))
+			}
+		}
+	}
+	if len(blocks) == 0 {
+		blocks = append(blocks, anthropic.NewTextBlock(msg.Content))
+	}
+	return blocks
 }
 
 func buildAnthropicTools(tools []agent.Tool) []anthropic.ToolUnionParam {

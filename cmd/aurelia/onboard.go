@@ -67,9 +67,19 @@ type onboardingUI struct {
 	allModelOptions []llm.ModelOption
 	modelOptions    []llm.ModelOption
 	modelFilter     string
+	modelCapability modelCapabilityFilter
 	reviewOptions   []string
 	pendingAction   string
 }
+
+type modelCapabilityFilter int
+
+const (
+	modelCapabilityAll modelCapabilityFilter = iota
+	modelCapabilityVision
+	modelCapabilityTools
+	modelCapabilityFree
+)
 
 var llmModelCatalog = llm.ListModels
 
@@ -162,7 +172,7 @@ func runOnboardTUI(stdin *os.File, stdout *os.File, resolver *runtime.PathResolv
 	reader := bufio.NewReader(stdin)
 
 	for {
-		if _, err := io.WriteString(stdout, ui.View(resolver)); err != nil {
+		if _, err := io.WriteString(stdout, rawTerminalFrame(ui.View(resolver))); err != nil {
 			return err
 		}
 
@@ -267,14 +277,15 @@ func (u *onboardingUI) View(resolver *runtime.PathResolver) string {
 		b.WriteString("Select the model for the chosen provider.\n\n")
 		if usesProviderModelSearch(u.cfg) {
 			_, _ = fmt.Fprintf(&b, "Search: %s\n", u.modelFilter)
-			_, _ = fmt.Fprintf(&b, "Showing %d of %d models\n\n", len(u.modelOptions), len(u.allModelOptions))
 		}
+		_, _ = fmt.Fprintf(&b, "Capability filter: %s\n", u.modelCapabilityLabel())
+		_, _ = fmt.Fprintf(&b, "Showing %d of %d models\n\n", len(u.modelOptions), len(u.allModelOptions))
 		b.WriteString(renderModelMenu(u.modelOptions, u.menuIndex))
 		_, _ = fmt.Fprintf(&b, "\nCatalog source: %s\n", u.modelSource)
 		if usesProviderModelSearch(u.cfg) {
-			b.WriteString("\nType to filter by model or provider. Use arrows and Enter. Backspace removes filter. Use left to go back.\n")
+			b.WriteString("\nType to filter by model or provider. Use right to cycle capability filters. Use arrows and Enter. Backspace removes filter. Use left to go back.\n")
 		} else {
-			b.WriteString("\nUse arrows and Enter. Use left to go back.\n")
+			b.WriteString("\nUse right to cycle capability filters. Use arrows and Enter. Use left to go back.\n")
 		}
 	case stepSTTProvider:
 		b.WriteString("STT Provider\n")
@@ -437,6 +448,9 @@ func (u *onboardingUI) handleModelMenuKey(ev keyEvent) (bool, bool, error) {
 		u.menuIndex = wrapIndex(u.menuIndex-1, len(u.modelOptions))
 	case keyDown:
 		u.menuIndex = wrapIndex(u.menuIndex+1, len(u.modelOptions))
+	case keyRight:
+		u.modelCapability = nextModelCapabilityFilter(u.modelCapability)
+		u.applyModelFilter()
 	case keyRune:
 		if usesProviderModelSearch(u.cfg) {
 			u.modelFilter += string(ev.r)
@@ -791,17 +805,18 @@ func resolveModelOptions(cfg config.EditableConfig) ([]llm.ModelOption, string) 
 	return nil, "no catalog available"
 }
 
-func filterModelOptions(cfg config.EditableConfig, options []llm.ModelOption, filter string) []llm.ModelOption {
+func filterModelOptions(cfg config.EditableConfig, options []llm.ModelOption, filter string, capability modelCapabilityFilter) []llm.ModelOption {
 	filter = strings.ToLower(strings.TrimSpace(filter))
-	if filter == "" || !usesProviderModelSearch(cfg) {
-		return append([]llm.ModelOption(nil), options...)
-	}
 
 	filtered := make([]llm.ModelOption, 0, len(options))
 	for _, option := range options {
-		if matchesModelFilter(option, filter) {
-			filtered = append(filtered, option)
+		if !matchesCapabilityFilter(option, capability) {
+			continue
 		}
+		if filter != "" && usesProviderModelSearch(cfg) && !matchesModelFilter(option, filter) {
+			continue
+		}
+		filtered = append(filtered, option)
 	}
 	return filtered
 }
@@ -875,7 +890,7 @@ func (u *onboardingUI) refreshModelOptions() {
 }
 
 func (u *onboardingUI) applyModelFilter() {
-	u.modelOptions = filterModelOptions(u.cfg, u.allModelOptions, u.modelFilter)
+	u.modelOptions = filterModelOptions(u.cfg, u.allModelOptions, u.modelFilter, u.modelCapability)
 	if len(u.modelOptions) == 0 {
 		u.menuIndex = 0
 		return
@@ -893,11 +908,51 @@ func (u *onboardingUI) setStep(step onboardStep) {
 	u.input = u.currentInputValue()
 	if step == stepLLMModel {
 		u.modelFilter = ""
+		u.modelCapability = modelCapabilityAll
 		u.refreshModelOptions()
 		u.menuIndex = selectedModelIndex(u.modelOptions, u.cfg.LLMModel)
 		return
 	}
 	u.menuIndex = 0
+}
+
+func (u *onboardingUI) modelCapabilityLabel() string {
+	switch u.modelCapability {
+	case modelCapabilityVision:
+		return "vision"
+	case modelCapabilityTools:
+		return "tools"
+	case modelCapabilityFree:
+		return "free"
+	default:
+		return "all"
+	}
+}
+
+func nextModelCapabilityFilter(current modelCapabilityFilter) modelCapabilityFilter {
+	switch current {
+	case modelCapabilityAll:
+		return modelCapabilityVision
+	case modelCapabilityVision:
+		return modelCapabilityTools
+	case modelCapabilityTools:
+		return modelCapabilityFree
+	default:
+		return modelCapabilityAll
+	}
+}
+
+func matchesCapabilityFilter(option llm.ModelOption, capability modelCapabilityFilter) bool {
+	switch capability {
+	case modelCapabilityVision:
+		return option.SupportsImageInput
+	case modelCapabilityTools:
+		return option.SupportsTools
+	case modelCapabilityFree:
+		return option.IsFree
+	default:
+		return true
+	}
 }
 
 func runOpenAIDeviceAuthCommand(stdin io.Reader, stdout io.Writer) error {
@@ -1109,6 +1164,11 @@ func readLine(reader *bufio.Reader) (string, error) {
 
 func clearScreen(w io.Writer) {
 	_, _ = io.WriteString(w, "\x1b[2J\x1b[H")
+}
+
+func rawTerminalFrame(text string) string {
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	return strings.ReplaceAll(text, "\n", "\r\n")
 }
 
 func renderSavedSummary(stdout io.Writer, resolver *runtime.PathResolver, current *config.EditableConfig) error {

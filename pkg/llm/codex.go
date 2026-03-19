@@ -147,6 +147,10 @@ func (p *CodexCLIProvider) GenerateContent(
 	history []agent.Message,
 	tools []agent.Tool,
 ) (*agent.ModelResponse, error) {
+	if historyHasImages(history) {
+		return nil, VisionUnsupportedError{provider: "openai_codex", model: p.model}
+	}
+
 	prompt, err := buildCodexPrompt(systemPrompt, history, tools)
 	if err != nil {
 		return nil, err

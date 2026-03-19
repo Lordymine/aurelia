@@ -122,3 +122,28 @@ func TestCodexCLIProvider_GenerateContentSurfacesToolError(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestCodexCLIProvider_RejectsImageHistory(t *testing.T) {
+	provider := &CodexCLIProvider{
+		model:   "gpt-5.4",
+		caller:  &stubCodexCaller{},
+		threads: make(map[string]string),
+	}
+
+	_, err := provider.GenerateContent(context.Background(), "sys", []agent.Message{
+		{
+			Role:    "user",
+			Content: "Analise esta imagem",
+			Parts: []agent.ContentPart{
+				{Type: agent.ContentPartText, Text: "Analise esta imagem"},
+				{Type: agent.ContentPartImage, MIMEType: "image/jpeg", Data: []byte("jpg")},
+			},
+		},
+	}, nil)
+	if err == nil {
+		t.Fatal("expected image history to be rejected")
+	}
+	if _, ok := err.(VisionUnsupportedError); !ok {
+		t.Fatalf("expected VisionUnsupportedError, got %T (%v)", err, err)
+	}
+}

@@ -16,6 +16,9 @@ func (p *KimiProvider) buildChatCompletionRequest(
 	history []agent.Message,
 	tools []agent.Tool,
 ) (map[string]any, error) {
+	if err := ensureVisionSupport("kimi", p.model, history); err != nil {
+		return nil, err
+	}
 	messages := append([]chatMessage{{
 		Role:    "system",
 		Content: systemPrompt,
@@ -60,6 +63,9 @@ func mapAgentMessage(msg agent.Message) chatMessage {
 	if msg.Role == "assistant" && len(msg.ToolCalls) > 0 {
 		cMsg.ReasoningContent = msg.ReasoningContent
 		cMsg.ToolCalls = mapToolCalls(msg.ToolCalls)
+	}
+	if len(msg.Parts) != 0 && msg.Role != "assistant" {
+		cMsg.Content = buildOpenAICompatibleContent(msg.Parts)
 	}
 
 	return cMsg
@@ -147,5 +153,3 @@ func (p *KimiProvider) doChatCompletionRequest(ctx context.Context, reqBody map[
 	}
 	return respBody, nil
 }
-
-

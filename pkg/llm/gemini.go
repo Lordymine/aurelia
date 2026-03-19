@@ -3,6 +3,7 @@ package llm
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/google/generative-ai-go/genai"
 	"golang.org/x/oauth2"
@@ -15,6 +16,7 @@ import (
 type GeminiProvider struct {
 	client *genai.Client
 	model  *genai.GenerativeModel
+	name   string
 }
 
 // NewGeminiProvider creates a new provider
@@ -25,7 +27,7 @@ func NewGeminiProvider(ctx context.Context, apiKey string, modelName string) (*G
 	}
 
 	model := client.GenerativeModel(modelName)
-	return &GeminiProvider{client: client, model: model}, nil
+	return &GeminiProvider{client: client, model: model, name: modelName}, nil
 }
 
 func NewGeminiProviderWithTokenSource(ctx context.Context, tokenSource oauth2.TokenSource, modelName string) (*GeminiProvider, error) {
@@ -35,7 +37,7 @@ func NewGeminiProviderWithTokenSource(ctx context.Context, tokenSource oauth2.To
 	}
 
 	model := client.GenerativeModel(modelName)
-	return &GeminiProvider{client: client, model: model}, nil
+	return &GeminiProvider{client: client, model: model, name: modelName}, nil
 }
 
 // Close cleans up
@@ -45,6 +47,9 @@ func (p *GeminiProvider) Close() {
 
 // GenerateContent maps our internal representation to Gemini's
 func (p *GeminiProvider) GenerateContent(ctx context.Context, systemPrompt string, history []agent.Message, tools []agent.Tool) (*agent.ModelResponse, error) {
+	if err := ensureVisionSupport("google", p.name, history); err != nil {
+		return nil, err
+	}
 	// Set system instruction
 	p.model.SystemInstruction = genai.NewUserContent(genai.Text(systemPrompt))
 
@@ -70,6 +75,7 @@ func (p *GeminiProvider) GenerateContent(ctx context.Context, systemPrompt strin
 
 	var contents []*genai.Content
 	var lastPart genai.Part
+	chat := p.model.StartChat()
 
 	for i, msg := range history {
 		// Map our Role to theirs
@@ -78,34 +84,44 @@ func (p *GeminiProvider) GenerateContent(ctx context.Context, systemPrompt strin
 			role = "model"
 		}
 
-		var part genai.Part
+		var parts []genai.Part
 		if msg.Role == "tool" {
-			part = genai.FunctionResponse{
+			parts = []genai.Part{genai.FunctionResponse{
 				Name:     msg.ToolCallID,
 				Response: map[string]any{"result": msg.Content},
-			}
+			}}
 		} else {
-			part = genai.Text(msg.Content)
+			parts = buildGeminiParts(msg)
 		}
 
 		if i == len(history)-1 && role == "user" {
-			lastPart = part
+			if len(parts) > 0 {
+				lastPart = parts[0]
+				if len(parts) > 1 {
+					resp, err := chat.SendMessage(ctx, parts...)
+					if err != nil {
+						return nil, fmt.Errorf("generate content error: %w", err)
+					}
+					return parseGeminiResponse(resp)
+				}
+			}
 			break // Don't append to history, send it!
 		} else if i == len(history)-1 && role == "model" {
 			// This is strange but we can just append and send empty, or send it.
 			// ReAct usually ends on user or tool. If tool (mapped to model? actually tool is user role in Gemini usually, wait. Gemini tool response is "function" or "user"? The docs say FunctionResponse is "user" role or "function" role, but in genai it's part of Content.
 			// Let's just treat the last one as the send payload
-			lastPart = part
+			if len(parts) > 0 {
+				lastPart = parts[0]
+			}
 			break
 		}
 
 		contents = append(contents, &genai.Content{
 			Role:  role,
-			Parts: []genai.Part{part},
+			Parts: parts,
 		})
 	}
 
-	chat := p.model.StartChat()
 	chat.History = contents
 
 	if lastPart == nil {
@@ -115,6 +131,31 @@ func (p *GeminiProvider) GenerateContent(ctx context.Context, systemPrompt strin
 	if err != nil {
 		return nil, fmt.Errorf("generate content error: %w", err)
 	}
+
+	return parseGeminiResponse(resp)
+}
+
+func buildGeminiParts(msg agent.Message) []genai.Part {
+	if len(msg.Parts) == 0 {
+		return []genai.Part{genai.Text(msg.Content)}
+	}
+	parts := make([]genai.Part, 0, len(msg.Parts))
+	for _, part := range msg.Parts {
+		switch part.Type {
+		case agent.ContentPartImage:
+			format := strings.TrimPrefix(part.MIMEType, "image/")
+			parts = append(parts, genai.ImageData(format, part.Data))
+		default:
+			parts = append(parts, genai.Text(part.Text))
+		}
+	}
+	if len(parts) == 0 {
+		parts = append(parts, genai.Text(msg.Content))
+	}
+	return parts
+}
+
+func parseGeminiResponse(resp *genai.GenerateContentResponse) (*agent.ModelResponse, error) {
 
 	if len(resp.Candidates) == 0 {
 		return nil, fmt.Errorf("no candidates returned")

@@ -66,6 +66,7 @@ func TestOpenAICompatibleProvider_GenerateContent(t *testing.T) {
 	defer server.Close()
 
 	provider := NewOpenAICompatibleProvider(OpenAICompatibleConfig{
+		Provider:  "openai",
 		APIKey:    "secret",
 		BaseURL:   server.URL,
 		Model:     "model-x",
@@ -125,5 +126,67 @@ func TestBuildOpenAICompatibleRequest_IncludesTools(t *testing.T) {
 	}
 	if _, ok := reqBody["tools"]; !ok {
 		t.Fatal("expected tools in request body")
+	}
+}
+
+func TestBuildOpenAICompatibleRequest_IncludesImageParts(t *testing.T) {
+	t.Parallel()
+
+	reqBody, err := buildOpenAICompatibleRequest("model-x", "system", []agent.Message{
+		{
+			Role:    "user",
+			Content: "describe",
+			Parts: []agent.ContentPart{
+				{Type: agent.ContentPartText, Text: "describe"},
+				{Type: agent.ContentPartImage, MIMEType: "image/jpeg", Data: []byte("jpg-bytes")},
+			},
+		},
+	}, nil)
+	if err != nil {
+		t.Fatalf("buildOpenAICompatibleRequest() error = %v", err)
+	}
+
+	messages, ok := reqBody["messages"].([]map[string]any)
+	if !ok {
+		t.Fatalf("messages type = %T", reqBody["messages"])
+	}
+	content, ok := messages[1]["content"].([]map[string]any)
+	if !ok {
+		t.Fatalf("content type = %T", messages[1]["content"])
+	}
+	if content[1]["type"] != "image_url" {
+		t.Fatalf("image content type = %v", content[1]["type"])
+	}
+}
+
+func TestOpenAICompatibleProvider_GenerateContent_MapsVision404ToNaturalFallback(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"error":{"message":"No endpoints found that support image input","code":404}}`))
+	}))
+	defer server.Close()
+
+	provider := NewOpenAICompatibleProvider(OpenAICompatibleConfig{
+		Provider: "kilo",
+		APIKey:   "secret",
+		BaseURL:  server.URL,
+		Model:    "glm-5-turbo",
+	})
+
+	_, err := provider.GenerateContent(context.Background(), "system", []agent.Message{{
+		Role:    "user",
+		Content: "analise",
+		Parts: []agent.ContentPart{
+			{Type: agent.ContentPartText, Text: "analise"},
+			{Type: agent.ContentPartImage, MIMEType: "image/jpeg", Data: []byte("jpg-bytes")},
+		},
+	}}, nil)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if _, ok := err.(VisionUnsupportedError); !ok {
+		t.Fatalf("error type = %T", err)
 	}
 }

@@ -149,6 +149,28 @@ func TestRenderOnboardingHeader_IncludesBannerAndColor(t *testing.T) {
 	}
 }
 
+func TestRawTerminalFrame_UsesCRLFLineEndings(t *testing.T) {
+	frame := rawTerminalFrame("line1\nline2\nline3")
+
+	if strings.Contains(frame, "line1\nline2") {
+		t.Fatal("expected line feeds to be normalized for raw terminal output")
+	}
+	if want := "line1\r\nline2\r\nline3"; frame != want {
+		t.Fatalf("frame = %q, want %q", frame, want)
+	}
+}
+
+func TestRawTerminalFrame_DoesNotDuplicateExistingCRLF(t *testing.T) {
+	frame := rawTerminalFrame("line1\r\nline2\nline3\r\n")
+
+	if strings.Contains(frame, "\r\r\n") {
+		t.Fatal("expected CRLF normalization to avoid duplicated carriage returns")
+	}
+	if want := "line1\r\nline2\r\nline3\r\n"; frame != want {
+		t.Fatalf("frame = %q, want %q", frame, want)
+	}
+}
+
 func TestOnboardingUI_MenuFlowAndBack(t *testing.T) {
 	ui := newOnboardingUI(config.DefaultEditableConfig())
 
@@ -271,12 +293,12 @@ func TestFilterModelOptions_OpenRouterMatchesProviderAndModel(t *testing.T) {
 
 	cfg := config.EditableConfig{LLMProvider: "openrouter"}
 
-	filteredByProvider := filterModelOptions(cfg, options, "anthropic")
+	filteredByProvider := filterModelOptions(cfg, options, "anthropic", modelCapabilityAll)
 	if len(filteredByProvider) != 1 || filteredByProvider[0].ID != "anthropic/claude-sonnet-4" {
 		t.Fatalf("filteredByProvider = %+v", filteredByProvider)
 	}
 
-	filteredByModel := filterModelOptions(cfg, options, "gemini")
+	filteredByModel := filterModelOptions(cfg, options, "gemini", modelCapabilityAll)
 	if len(filteredByModel) != 1 || filteredByModel[0].ID != "google/gemini-2.5-flash" {
 		t.Fatalf("filteredByModel = %+v", filteredByModel)
 	}
@@ -320,12 +342,12 @@ func TestFilterModelOptions_KiloMatchesProviderAndModel(t *testing.T) {
 
 	cfg := config.EditableConfig{LLMProvider: "kilo"}
 
-	filteredByProvider := filterModelOptions(cfg, options, "anthropic")
+	filteredByProvider := filterModelOptions(cfg, options, "anthropic", modelCapabilityAll)
 	if len(filteredByProvider) != 1 || filteredByProvider[0].ID != "claude-sonnet-4-6" {
 		t.Fatalf("filteredByProvider = %+v", filteredByProvider)
 	}
 
-	filteredByModel := filterModelOptions(cfg, options, "gpt-5")
+	filteredByModel := filterModelOptions(cfg, options, "gpt-5", modelCapabilityAll)
 	if len(filteredByModel) != 1 || filteredByModel[0].ID != "gpt-5.4" {
 		t.Fatalf("filteredByModel = %+v", filteredByModel)
 	}
@@ -357,6 +379,81 @@ func TestOnboardingUI_KiloModelSearchFiltersResults(t *testing.T) {
 	}
 	if len(ui.modelOptions) != 1 || ui.modelOptions[0].ID != "gemini-2.5-pro" {
 		t.Fatalf("modelOptions = %+v", ui.modelOptions)
+	}
+}
+
+func TestFilterModelOptions_VisionOnly(t *testing.T) {
+	options := []llm.ModelOption{
+		{ID: "kimi-k2-thinking", Name: "Kimi K2 Thinking"},
+		{ID: "moonshot-v1-vision", Name: "Moonshot Vision", SupportsImageInput: true},
+	}
+
+	filtered := filterModelOptions(config.EditableConfig{LLMProvider: "kimi"}, options, "", modelCapabilityVision)
+	if len(filtered) != 1 || filtered[0].ID != "moonshot-v1-vision" {
+		t.Fatalf("filtered = %+v", filtered)
+	}
+}
+
+func TestOnboardingUI_ModelVisionToggleFiltersResults(t *testing.T) {
+	ui := newOnboardingUI(config.EditableConfig{
+		LLMProvider: "kilo",
+		LLMModel:    "openai/gpt-5.4",
+	})
+	ui.step = stepLLMModel
+	ui.allModelOptions = []llm.ModelOption{
+		{ID: "z-ai/glm-5-turbo", Name: "GLM-5 Turbo"},
+		{ID: "openai/gpt-5.4", Name: "GPT-5.4", SupportsImageInput: true},
+	}
+	ui.modelOptions = append([]llm.ModelOption(nil), ui.allModelOptions...)
+
+	_, _, err := ui.HandleKey(keyEvent{code: keyRight})
+	if err != nil {
+		t.Fatalf("HandleKey() error = %v", err)
+	}
+	if ui.modelCapability != modelCapabilityVision {
+		t.Fatalf("expected vision filter, got %v", ui.modelCapability)
+	}
+	if len(ui.modelOptions) != 1 || ui.modelOptions[0].ID != "openai/gpt-5.4" {
+		t.Fatalf("modelOptions = %+v", ui.modelOptions)
+	}
+}
+
+func TestOnboardingUI_ModelCapabilityCycleFiltersToolsAndFree(t *testing.T) {
+	ui := newOnboardingUI(config.EditableConfig{
+		LLMProvider: "openrouter",
+		LLMModel:    "openrouter/auto",
+	})
+	ui.step = stepLLMModel
+	ui.allModelOptions = []llm.ModelOption{
+		{ID: "anthropic/claude-sonnet-4", Name: "Claude Sonnet 4", SupportsImageInput: true, SupportsTools: true},
+		{ID: "meta-llama/llama-free", Name: "Llama Free", IsFree: true},
+	}
+	ui.modelOptions = append([]llm.ModelOption(nil), ui.allModelOptions...)
+
+	_, _, err := ui.HandleKey(keyEvent{code: keyRight})
+	if err != nil {
+		t.Fatalf("HandleKey() error = %v", err)
+	}
+	_, _, err = ui.HandleKey(keyEvent{code: keyRight})
+	if err != nil {
+		t.Fatalf("HandleKey() error = %v", err)
+	}
+	if ui.modelCapability != modelCapabilityTools {
+		t.Fatalf("expected tools filter, got %v", ui.modelCapability)
+	}
+	if len(ui.modelOptions) != 1 || ui.modelOptions[0].ID != "anthropic/claude-sonnet-4" {
+		t.Fatalf("tools modelOptions = %+v", ui.modelOptions)
+	}
+
+	_, _, err = ui.HandleKey(keyEvent{code: keyRight})
+	if err != nil {
+		t.Fatalf("HandleKey() error = %v", err)
+	}
+	if ui.modelCapability != modelCapabilityFree {
+		t.Fatalf("expected free filter, got %v", ui.modelCapability)
+	}
+	if len(ui.modelOptions) != 1 || ui.modelOptions[0].ID != "meta-llama/llama-free" {
+		t.Fatalf("free modelOptions = %+v", ui.modelOptions)
 	}
 }
 

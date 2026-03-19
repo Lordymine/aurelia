@@ -4,22 +4,90 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"mime"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
+	"github.com/kocar/aurelia/internal/agent"
 	"gopkg.in/telebot.v3"
 )
 
 func (bc *BotController) handleText(c telebot.Context) error {
-	return bc.processInput(c, c.Text(), false)
+	return bc.processInput(c, c.Text(), nil, false)
+}
+
+func (bc *BotController) handlePhoto(c telebot.Context) error {
+	photo := c.Message().Photo
+	if photo == nil {
+		return nil
+	}
+
+	if c.Message().AlbumID != "" {
+		return bc.handlePhotoAlbum(c, photo)
+	}
+
+	return bc.processPhotoInput(c, strings.TrimSpace(c.Message().Caption), []albumPhoto{{
+		messageID: c.Message().ID,
+		photo:     *photo,
+	}})
+}
+
+func (bc *BotController) handlePhotoAlbum(c telebot.Context, photo *telebot.Photo) error {
+	albumID := c.Message().AlbumID
+	isOwner := bc.storeAlbumPhoto(albumID, c.Message().ID, strings.TrimSpace(c.Message().Caption), *photo)
+	if !isOwner {
+		return nil
+	}
+
+	time.Sleep(900 * time.Millisecond)
+
+	caption, photos, ok := bc.flushAlbumPhotos(albumID)
+	if !ok {
+		return nil
+	}
+	return bc.processPhotoInput(c, caption, photos)
+}
+
+func (bc *BotController) processPhotoInput(c telebot.Context, caption string, photos []albumPhoto) error {
+	if len(photos) == 0 {
+		return nil
+	}
+
+	stopTyping := startChatActionLoop(bc.bot, c.Chat(), telebot.UploadingPhoto, 4*time.Second)
+	defer stopTyping()
+
+	text := caption
+	if text == "" {
+		if len(photos) > 1 {
+			text = "Analise estas imagens."
+		} else {
+			text = "Analise esta imagem."
+		}
+	}
+	parts := make([]agent.ContentPart, 0, len(photos)+1)
+	parts = append(parts, agent.ContentPart{Type: agent.ContentPartText, Text: text})
+	for _, item := range photos {
+		part, err := bc.downloadPhotoPart(item.photo)
+		if err != nil {
+			log.Println("Failed to process photo:", err)
+			return SendContextText(c, downloadFailureMessage)
+		}
+		parts = append(parts, part)
+	}
+	return bc.processInput(c, text, parts, false)
 }
 
 func (bc *BotController) handleDocument(c telebot.Context) error {
 	doc := c.Message().Document
 	if doc == nil {
 		return nil
+	}
+
+	if isSupportedImageDocument(doc.FileName, doc.MIME) {
+		return bc.handleImageDocument(c, doc)
 	}
 
 	if !isSupportedDocument(doc.FileName, doc.MIME) {
@@ -38,7 +106,36 @@ func (bc *BotController) handleDocument(c telebot.Context) error {
 	defer func() { _ = os.Remove(filePath) }()
 
 	finalInput := buildDocumentInput(c.Message().Caption, doc.FileName, doc.MIME, filePath)
-	return bc.processInput(c, finalInput, false)
+	return bc.processInput(c, finalInput, nil, false)
+}
+
+func (bc *BotController) handleImageDocument(c telebot.Context, doc *telebot.Document) error {
+	stopTyping := startChatActionLoop(bc.bot, c.Chat(), telebot.UploadingPhoto, 4*time.Second)
+	defer stopTyping()
+
+	filePath, err := bc.downloadTelegramFile(&doc.File, doc.FileID+"_"+doc.FileName)
+	if err != nil {
+		log.Println("Failed to download image document:", err)
+		return SendContextText(c, downloadFailureMessage)
+	}
+	defer func() { _ = os.Remove(filePath) }()
+
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		log.Println("Failed to read image document:", err)
+		return SendContextText(c, downloadFailureMessage)
+	}
+
+	text := strings.TrimSpace(c.Message().Caption)
+	if text == "" {
+		text = "Analise esta imagem."
+	}
+
+	parts := []agent.ContentPart{
+		{Type: agent.ContentPartText, Text: text},
+		{Type: agent.ContentPartImage, MIMEType: detectImageMIMEType(doc.FileName, doc.MIME), Data: data},
+	}
+	return bc.processInput(c, text, parts, false)
 }
 
 func (bc *BotController) handleVoice(c telebot.Context) error {
@@ -65,11 +162,19 @@ func (bc *BotController) handleVoice(c telebot.Context) error {
 		}
 		return SendContextText(c, audioProcessingFailureMessage)
 	}
-	return bc.processInput(c, transcribedText, true)
+	return bc.processInput(c, transcribedText, nil, true)
 }
 
 func isSupportedDocument(filename, mimeType string) bool {
 	return strings.HasSuffix(filename, ".md") || mimeType == "application/pdf"
+}
+
+func isSupportedImageDocument(filename, mimeType string) bool {
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(mimeType)), "image/") {
+		return true
+	}
+	guessed := mime.TypeByExtension(strings.ToLower(filepath.Ext(filename)))
+	return strings.HasPrefix(guessed, "image/")
 }
 
 func (bc *BotController) downloadTelegramFile(file *telebot.File, filename string) (string, error) {
@@ -92,6 +197,63 @@ func buildDocumentInput(caption, filename, mimeType, filePath string) string {
 	}
 
 	return fmt.Sprintf("%s\n\n[Analise o anexo %s]:\n%s", caption, filename, extractedText)
+}
+
+func detectImageMIMEType(filename, mimeType string) string {
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(mimeType)), "image/") {
+		return mimeType
+	}
+	if guessed := mime.TypeByExtension(strings.ToLower(filepath.Ext(filename))); strings.HasPrefix(guessed, "image/") {
+		return guessed
+	}
+	return "image/jpeg"
+}
+
+func (bc *BotController) downloadPhotoPart(photo telebot.Photo) (agent.ContentPart, error) {
+	filePath, err := bc.downloadTelegramFile(&photo.File, photo.FileID+"_photo.jpg")
+	if err != nil {
+		return agent.ContentPart{}, err
+	}
+	defer func() { _ = os.Remove(filePath) }()
+
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return agent.ContentPart{}, err
+	}
+	return agent.ContentPart{Type: agent.ContentPartImage, MIMEType: "image/jpeg", Data: data}, nil
+}
+
+func (bc *BotController) storeAlbumPhoto(albumID string, messageID int, caption string, photo telebot.Photo) bool {
+	bc.albumMu.Lock()
+	defer bc.albumMu.Unlock()
+
+	album, ok := bc.pendingAlbums[albumID]
+	if !ok {
+		album = &pendingAlbum{ownerMessageID: messageID}
+		bc.pendingAlbums[albumID] = album
+	}
+	if caption != "" && album.caption == "" {
+		album.caption = caption
+	}
+	album.photos = append(album.photos, albumPhoto{messageID: messageID, photo: photo})
+	return album.ownerMessageID == messageID
+}
+
+func (bc *BotController) flushAlbumPhotos(albumID string) (string, []albumPhoto, bool) {
+	bc.albumMu.Lock()
+	defer bc.albumMu.Unlock()
+
+	album, ok := bc.pendingAlbums[albumID]
+	if !ok {
+		return "", nil, false
+	}
+	delete(bc.pendingAlbums, albumID)
+
+	photos := append([]albumPhoto(nil), album.photos...)
+	sort.SliceStable(photos, func(i, j int) bool {
+		return photos[i].messageID < photos[j].messageID
+	})
+	return album.caption, photos, true
 }
 
 func resolveAudioAttachment(c telebot.Context) (string, string, bool) {

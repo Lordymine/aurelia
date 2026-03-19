@@ -37,7 +37,6 @@ Do not ask for permission on obvious implementation details.
 
 Do not over-communicate progress. Surface blockers, tradeoffs, and decisions that matter.
 
-Never commit autonomously.
 Always leave the final commit to the human.
 
 ---

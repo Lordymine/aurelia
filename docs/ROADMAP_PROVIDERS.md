@@ -117,35 +117,36 @@ Valid transitions:
   - provider base unit tests
   - `go test ./pkg/llm ./...`
 
-### T05 - Z.ai
+### T05 - Z.ai Coding Plan
 
-- scope: integrate Z.ai using the OpenAI-compatible base and provider-specific model catalog strategy
+- scope: integrate Z.ai GLM Coding Plan using the OpenAI-compatible base and provider-specific model catalog strategy
 - depends on: `T04`
 - official references:
-  - https://docs.z.ai/guides/
+  - https://docs.z.ai/api-reference/introduction
+  - https://docs.z.ai/devpack/tool/cursor
 - acceptance criteria:
   - onboarding supports `zai`
   - onboarding stores `zai_api_key`
-  - runtime builds Z.ai provider
-  - model selection uses remote catalog when available or curated fallback
-  - docs describe endpoint behavior and limitations
+  - runtime builds Z.ai provider against the Coding Plan endpoint
+  - model selection uses curated Coding Plan models
+  - docs describe Coding Plan behavior and limitations
 - validation:
   - provider unit tests
   - onboarding tests
   - `go test ./...`
 
-### T06 - Alibaba
+### T06 - Alibaba Coding Plan
 
-- scope: integrate Alibaba DashScope using OpenAI-compatible mode
+- scope: integrate Alibaba Coding Plan using the compatible coding endpoint
 - depends on: `T04`
 - official references:
   - https://www.alibabacloud.com/help/en/model-studio/compatibility-of-openai-with-dashscope
 - acceptance criteria:
   - onboarding supports `alibaba`
   - onboarding stores `alibaba_api_key`
-  - runtime builds Alibaba provider with DashScope compatible endpoint
-  - model selection uses remote catalog when available or curated fallback
-  - docs describe compatibility-mode behavior
+  - runtime builds Alibaba provider with the Coding Plan endpoint
+  - model selection uses curated coding-focused models
+  - docs describe Coding Plan behavior and limitations
 - validation:
   - provider unit tests
   - onboarding tests
@@ -189,6 +190,7 @@ Valid transitions:
 Status note:
 
 - retired from the active product surface; Aurelia now keeps Google on `api_key` only
+- preserved in roadmap only as historical context, not as an active feature
 
 ### T09 - OpenAI Codex via MCP
 

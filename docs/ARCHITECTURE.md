@@ -116,6 +116,12 @@ Current auth variants:
 - `alibaba`: `coding_plan_api_key`
 - `openai`: `api_key` or experimental local `codex` CLI mode
 
+Vision input:
+
+- Telegram photos, image documents, and photo albums enter the runtime as multimodal user messages
+- providers decide support at runtime based on the selected model
+- when the active model does not support image input, Aurelia responds with a natural limitation message instead of silently ignoring the image
+
 ### Interface Layer
 
 `internal/telegram` is the interface boundary.
@@ -244,7 +250,7 @@ Implemented in the current codebase:
 - tool-driven ReAct loop
 - Agent Teams orchestration with task graph, mailbox, recovery, and final synthesis
 - SQLite-backed memory and operational persistence
-- Telegram text, markdown, and audio input flow
+- Telegram text, markdown, image, and audio input flow
 - cron scheduling subsystem
 - MCP discovery and registration
 - project-aware execution through propagated `workdir`

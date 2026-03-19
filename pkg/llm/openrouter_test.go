@@ -23,8 +23,20 @@ func TestListOpenRouterModels(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{
 			"data": [
-				{"id":"anthropic/claude-sonnet-4","name":"Claude Sonnet 4"},
-				{"id":"google/gemini-2.5-flash","name":"Gemini 2.5 Flash"}
+				{
+					"id":"anthropic/claude-sonnet-4",
+					"name":"Claude Sonnet 4",
+					"pricing":{"prompt":"0.000003","completion":"0.000015"},
+					"supported_parameters":["tools","max_tokens"],
+					"architecture":{"input_modalities":["text","image"]}
+				},
+				{
+					"id":"google/gemini-2.5-flash:free",
+					"name":"Gemini 2.5 Flash",
+					"pricing":{"prompt":"0","completion":"0"},
+					"supported_parameters":["max_tokens"],
+					"architecture":{"input_modalities":["text"]}
+				}
 			]
 		}`))
 	}))
@@ -39,6 +51,18 @@ func TestListOpenRouterModels(t *testing.T) {
 	}
 	if models[0].ID != "openrouter/auto" || models[1].ID != "openrouter/free" {
 		t.Fatalf("unexpected router defaults: %+v", models[:2])
+	}
+	if !models[2].SupportsImageInput {
+		t.Fatal("expected anthropic model to support image input")
+	}
+	if !models[2].SupportsTools {
+		t.Fatal("expected anthropic model to advertise tools support")
+	}
+	if models[3].SupportsImageInput {
+		t.Fatal("expected google test model to be text-only")
+	}
+	if !models[3].IsFree {
+		t.Fatal("expected google test model to be marked as free")
 	}
 }
 

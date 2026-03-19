@@ -40,6 +40,11 @@ func TestModelOptionLabel(t *testing.T) {
 	if got := option.Label(); got != "Kimi K2.5 (k2.5)" {
 		t.Fatalf("Label() = %q", got)
 	}
+
+	option = ModelOption{ID: "gpt-5.4", Name: "GPT-5.4", SupportsImageInput: true, SupportsTools: true, IsFree: true}
+	if got := option.Label(); got != "GPT-5.4 (gpt-5.4) [vision, tools, free]" {
+		t.Fatalf("Label() with badges = %q", got)
+	}
 }
 
 func TestListAnthropicModels(t *testing.T) {
@@ -129,8 +134,8 @@ func TestListModels_KiloUsesRemoteCatalog(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{
 			"data": [
-				{"id":"gpt-5.4","name":"GPT-5.4","owned_by":"openai"},
-				{"id":"claude-sonnet-4-6","name":"Claude Sonnet 4.6","owned_by":"anthropic"}
+				{"id":"openai/gpt-5.4","name":"GPT-5.4","owned_by":"openai","architecture":{"input_modalities":["text","image"]}},
+				{"id":"z-ai/glm-5-turbo:free","name":"GLM 5 Turbo","owned_by":"z-ai","architecture":{"input_modalities":["text"]}}
 			]
 		}`))
 	}))
@@ -148,11 +153,20 @@ func TestListModels_KiloUsesRemoteCatalog(t *testing.T) {
 	if len(models) != 2 {
 		t.Fatalf("expected 2 models, got %d", len(models))
 	}
-	if models[0].ID != "gpt-5.4" {
+	if models[0].ID != "openai/gpt-5.4" {
 		t.Fatalf("first model = %+v", models[0])
 	}
 	if models[0].Name != "GPT-5.4 · openai" {
 		t.Fatalf("first model name = %q", models[0].Name)
+	}
+	if !models[0].SupportsImageInput {
+		t.Fatal("expected first model to support image input")
+	}
+	if models[1].SupportsImageInput {
+		t.Fatal("expected second model to be text-only")
+	}
+	if !models[1].IsFree {
+		t.Fatal("expected second model to be marked as free")
 	}
 }
 
@@ -168,5 +182,26 @@ func TestListModels_OpenAICodexUsesFallbackCatalog(t *testing.T) {
 	}
 	if models[0].ID != "gpt-5.4" {
 		t.Fatalf("first model = %+v", models[0])
+	}
+}
+
+func TestFallbackModels_ExposeVisionCapabilityLabels(t *testing.T) {
+	t.Parallel()
+
+	openAI := FallbackModels("openai")
+	if len(openAI) == 0 || !openAI[0].SupportsImageInput {
+		t.Fatalf("expected OpenAI fallback to advertise vision support: %+v", openAI)
+	}
+
+	zai := FallbackModels("zai")
+	foundVision := false
+	for _, model := range zai {
+		if model.SupportsImageInput {
+			foundVision = true
+			break
+		}
+	}
+	if !foundVision {
+		t.Fatalf("expected at least one Z.ai fallback model to advertise vision support: %+v", zai)
 	}
 }

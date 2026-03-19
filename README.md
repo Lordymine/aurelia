@@ -65,7 +65,7 @@ These numbers are local baseline measurements, not universal guarantees across a
 
 ## Core Capabilities
 
-- Telegram-native interaction with text, markdown documents, and audio input
+- Telegram-native interaction with text, markdown documents, images, markdown documents, and audio input
 - tool-driven ReAct execution
 - Agent Teams with master-only user response, task graph, mailbox, and recovery
 - SQLite-backed recent memory, facts, notes, archive, and operational task state
@@ -153,7 +153,7 @@ Requirements:
 - OpenRouter API key
 - Z.ai Coding Plan API key
 - Alibaba Coding Plan API key
-  - OpenAI API key
+- OpenAI API key
 - or a local Codex CLI login for experimental OpenAI Codex mode
 - Groq API key for STT
 
@@ -203,10 +203,19 @@ The onboarding runs in guided steps:
 - configure Telegram
 - review runtime settings and save
 
+Model selection notes:
+
+- large catalogs such as `OpenRouter` and `Kilo Code` support live search by model or provider
+- the onboarding shows capability badges such as `[vision]`, `[tools]`, and `[free]` when the catalog exposes that metadata
+- use `→` in the model step to cycle between `all`, `vision`, `tools`, and `free`
+
 Provider notes:
 
 - `zai` expects a `GLM Coding Plan` key and uses the dedicated coding endpoint
 - `alibaba` expects a Coding Plan key and uses the dedicated coding endpoint
+- Telegram photos, image documents, and photo albums are forwarded as multimodal input when the current provider/model supports vision
+- if the current model does not support image input, Aurelia replies with a natural fallback explaining that limitation
+- `openai` in `codex` mode is experimental and should be treated as text-first; use API key mode or another provider for image analysis
 
 OpenAI Codex login:
 

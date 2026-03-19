@@ -12,6 +12,20 @@ type ToolCall struct {
 	Arguments map[string]interface{}
 }
 
+type ContentPartType string
+
+const (
+	ContentPartText  ContentPartType = "text"
+	ContentPartImage ContentPartType = "image"
+)
+
+type ContentPart struct {
+	Type     ContentPartType
+	Text     string
+	MIMEType string
+	Data     []byte
+}
+
 // ModelResponse is the standardized output from any LLM Provider
 type ModelResponse struct {
 	Content          string
@@ -30,10 +44,15 @@ type Message struct {
 	Role             string // "user", "assistant", "system", "tool"
 	Content          string
 	ReasoningContent string
+	Parts            []ContentPart
 	// ToolCallID is used when Role == "tool" to map the observation to the correct call
 	ToolCallID string
 	// ToolCalls is used when Role == "assistant" to remember the calls it requested
 	ToolCalls []ToolCall
+}
+
+func (m Message) HasMedia() bool {
+	return len(m.Parts) != 0
 }
 
 // Tool describes a function available to the LLM
