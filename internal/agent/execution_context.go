@@ -102,3 +102,29 @@ func WorkdirFromContext(ctx context.Context) (workdir string, ok bool) {
 
 	return workdir, true
 }
+
+func ContextFields(ctx context.Context) map[string]string {
+	fields := make(map[string]string)
+	if ctx == nil {
+		return fields
+	}
+
+	if runID, ok := RunContextFromContext(ctx); ok {
+		fields["run_id"] = runID
+	}
+	if teamKey, userID, ok := TeamContextFromContext(ctx); ok {
+		fields["team_key"] = teamKey
+		fields["user_id"] = userID
+	}
+	if teamID, taskID, ok := TaskContextFromContext(ctx); ok {
+		fields["team_id"] = teamID
+		fields["task_id"] = taskID
+	}
+	if agentName, ok := AgentContextFromContext(ctx); ok {
+		fields["agent"] = agentName
+	}
+	if workdir, ok := WorkdirFromContext(ctx); ok {
+		fields["workdir"] = workdir
+	}
+	return fields
+}

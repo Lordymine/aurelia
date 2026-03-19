@@ -14,6 +14,7 @@ import (
 	"github.com/kocar/aurelia/internal/cron"
 	"github.com/kocar/aurelia/internal/mcp"
 	"github.com/kocar/aurelia/internal/memory"
+	"github.com/kocar/aurelia/internal/observability"
 	"github.com/kocar/aurelia/internal/persona"
 	"github.com/kocar/aurelia/internal/runtime"
 	"github.com/kocar/aurelia/internal/skill"
@@ -28,6 +29,7 @@ type app struct {
 	resolver      *runtime.PathResolver
 	mem           *memory.MemoryManager
 	cronStore     *cron.SQLiteCronStore
+	opsStore      *observability.SQLiteStore
 	mcpManager    *mcp.Manager
 	taskStore     *agent.SQLiteTaskStore
 	llmProvider   closableLLMProvider
@@ -60,6 +62,11 @@ func bootstrapApp() (*app, error) {
 	if err != nil {
 		return nil, fmt.Errorf("initialize memory manager: %w", err)
 	}
+	opsStore, err := observability.NewSQLiteStore(cfg.DBPath)
+	if err != nil {
+		_ = mem.Close()
+		return nil, fmt.Errorf("initialize observability store: %w", err)
+	}
 
 	personasDir := resolver.MemoryPersonas()
 	memoryDir := resolver.Memory()
@@ -81,6 +88,8 @@ func bootstrapApp() (*app, error) {
 	}
 	llmProvider, err := buildLLMProvider(cfg, resolver)
 	if err != nil {
+		_ = opsStore.Close()
+		_ = mem.Close()
 		return nil, fmt.Errorf("initialize llm provider: %w", err)
 	}
 	canonicalService := persona.NewCanonicalIdentityService(
@@ -96,6 +105,7 @@ func bootstrapApp() (*app, error) {
 
 	cronStore, err := cron.NewSQLiteCronStore(cfg.DBPath)
 	if err != nil {
+		_ = opsStore.Close()
 		_ = mem.Close()
 		return nil, fmt.Errorf("initialize cron store: %w", err)
 	}
@@ -106,7 +116,7 @@ func bootstrapApp() (*app, error) {
 		log.Printf("Warning: %v", err)
 	}
 
-	loop := agent.NewLoop(llmProvider, registry, cfg.MaxIterations)
+	loop := agent.NewLoopWithObserver(llmProvider, registry, cfg.MaxIterations, opsStore)
 	skillLoader := skill.NewLoader(resolver.Skills(), projectSkillsDir)
 	skillRouter := skill.NewRouter(llmProvider)
 	skillExecutor := skill.NewExecutor(loop)
@@ -114,6 +124,7 @@ func bootstrapApp() (*app, error) {
 	transcriber, err := buildTranscriber(cfg)
 	if err != nil {
 		_ = cronStore.Close()
+		_ = opsStore.Close()
 		_ = mem.Close()
 		return nil, fmt.Errorf("initialize transcriber: %w", err)
 	}
@@ -130,9 +141,11 @@ func bootstrapApp() (*app, error) {
 		transcriber,
 		canonicalService,
 		personasDir,
+		opsStore,
 	)
 	if err != nil {
 		_ = cronStore.Close()
+		_ = opsStore.Close()
 		_ = mem.Close()
 		return nil, fmt.Errorf("initialize telegram block: %w", err)
 	}
@@ -140,13 +153,15 @@ func bootstrapApp() (*app, error) {
 	taskStore, err := agent.NewSQLiteTaskStore(cfg.DBPath + ".teams")
 	if err != nil {
 		_ = cronStore.Close()
+		_ = opsStore.Close()
 		_ = mem.Close()
 		return nil, fmt.Errorf("initialize team task store: %w", err)
 	}
 
-	if err := registerSpawnAgentTool(cfg, registry, llmProvider, bot, taskStore); err != nil {
+	if err := registerSpawnAgentTool(cfg, registry, llmProvider, bot, taskStore, opsStore); err != nil {
 		_ = taskStore.Close()
 		_ = cronStore.Close()
+		_ = opsStore.Close()
 		_ = mem.Close()
 		return nil, err
 	}
@@ -155,6 +170,7 @@ func bootstrapApp() (*app, error) {
 	if err != nil {
 		_ = taskStore.Close()
 		_ = cronStore.Close()
+		_ = opsStore.Close()
 		_ = mem.Close()
 		return nil, fmt.Errorf("initialize cron scheduler: %w", err)
 	}
@@ -163,6 +179,7 @@ func bootstrapApp() (*app, error) {
 		resolver:      resolver,
 		mem:           mem,
 		cronStore:     cronStore,
+		opsStore:      opsStore,
 		mcpManager:    mcpManager,
 		taskStore:     taskStore,
 		llmProvider:   llmProvider,
@@ -247,6 +264,11 @@ func (a *app) close() {
 			log.Printf("Warning: failed to close cron store: %v", err)
 		}
 	}
+	if a.opsStore != nil {
+		if err := a.opsStore.Close(); err != nil {
+			log.Printf("Warning: failed to close observability store: %v", err)
+		}
+	}
 	if a.mem != nil {
 		if err := a.mem.Close(); err != nil {
 			log.Printf("Warning: failed to close memory manager: %v", err)
@@ -284,7 +306,10 @@ func buildCronScheduler(
 		return telegram.SendText(bot.GetBot(), chat, output)
 	})
 
-	scheduler, err := cron.NewScheduler(cronStore, notifyingRuntime, nil, cron.SchedulerConfig{PollInterval: time.Minute})
+	scheduler, err := cron.NewScheduler(cronStore, notifyingRuntime, nil, cron.SchedulerConfig{
+		PollInterval: time.Minute,
+		Observer:     bot.GetOpsStore(),
+	})
 	if err != nil {
 		return nil, nil, nil, err
 	}

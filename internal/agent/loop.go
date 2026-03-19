@@ -4,11 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/kocar/aurelia/internal/observability"
 )
 
 // Loop executes the ReAct logic
@@ -16,18 +17,25 @@ type Loop struct {
 	llm           LLMProvider
 	registry      *ToolRegistry
 	maxIterations int
+	observer      observability.Recorder
 }
 
 // NewLoop constructs an agent loop. Pass -1 for unlimited iterations.
 func NewLoop(llm LLMProvider, registry *ToolRegistry, maxIterations int) *Loop {
 	if maxIterations == 0 {
-		maxIterations = 5 // Fallback to PRD standard
+		maxIterations = 5
 	}
 	return &Loop{
 		llm:           llm,
 		registry:      registry,
 		maxIterations: maxIterations,
 	}
+}
+
+func NewLoopWithObserver(llm LLMProvider, registry *ToolRegistry, maxIterations int, observer observability.Recorder) *Loop {
+	loop := NewLoop(llm, registry, maxIterations)
+	loop.observer = observer
+	return loop
 }
 
 // Run executes the agent resolving loop on a given state of messages
@@ -43,34 +51,63 @@ func (l *Loop) Run(ctx context.Context, systemPrompt string, history []Message, 
 	systemPrompt = augmentSystemPromptWithToolGuidance(systemPrompt, tools)
 	systemPrompt = augmentSystemPromptWithRuntimeCapabilities(systemPrompt, tools)
 
-	// DIANOGSTIC LOG: Check what tools are actually being sent to the LLM
 	var toolNames []string
 	for _, t := range tools {
 		toolNames = append(toolNames, t.Name)
 	}
-	log.Printf("[Diagnostic] Tools passed to LLM Provider: %v", toolNames)
+	observability.Log("info", "agent.loop", "starting loop run", observability.MergeFields(ContextFields(ctx), map[string]string{
+		"tools": strings.Join(toolNames, ","),
+	}))
 
 	iterations := 0
-
 	for l.maxIterations < 0 || iterations < l.maxIterations {
 		iterations++
-		if l.maxIterations < 0 {
-			log.Printf("Agent Loop Iteration: %d/∞\n", iterations)
-		} else {
-			log.Printf("Agent Loop Iteration: %d/%d\n", iterations, l.maxIterations)
+		iterationFields := observability.MergeFields(ContextFields(ctx), map[string]string{
+			"iteration": fmt.Sprintf("%d", iterations),
+		})
+		if l.maxIterations >= 0 {
+			iterationFields["max_iterations"] = fmt.Sprintf("%d", l.maxIterations)
 		}
+		observability.Log("info", "agent.loop", "loop iteration", iterationFields)
 
-		// Check for context cancellation from the Time Tracker before hitting the LLM
 		if ctx.Err() != nil {
+			observability.Log("warn", "agent.loop", "loop cancelled before provider call", ContextFields(ctx))
 			return currentHistory, "", fmt.Errorf("context cancelled by timer: %w", ctx.Err())
 		}
 
+		startedAt := time.Now()
 		resp, err := l.llm.GenerateContent(ctx, systemPrompt, currentHistory, tools)
+		duration := time.Since(startedAt)
 		if err != nil {
+			observability.Log("error", "agent.loop", "provider call failed", observability.MergeFields(ContextFields(ctx), map[string]string{
+				"duration_ms": fmt.Sprintf("%d", duration.Milliseconds()),
+				"error":       err.Error(),
+			}))
+			observability.Observe(ctx, l.observer, observability.Operation{
+				RunID:      ContextFields(ctx)["run_id"],
+				TeamID:     ContextFields(ctx)["team_id"],
+				TaskID:     ContextFields(ctx)["task_id"],
+				AgentName:  ContextFields(ctx)["agent"],
+				Component:  "agent.loop",
+				Operation:  "llm_generate",
+				Status:     "error",
+				DurationMS: duration.Milliseconds(),
+				Summary:    err.Error(),
+			})
 			return currentHistory, "", fmt.Errorf("provider error: %w", err)
 		}
+		observability.Observe(ctx, l.observer, observability.Operation{
+			RunID:      ContextFields(ctx)["run_id"],
+			TeamID:     ContextFields(ctx)["team_id"],
+			TaskID:     ContextFields(ctx)["task_id"],
+			AgentName:  ContextFields(ctx)["agent"],
+			Component:  "agent.loop",
+			Operation:  "llm_generate",
+			Status:     "ok",
+			DurationMS: duration.Milliseconds(),
+			Summary:    fmt.Sprintf("tool_calls=%d content_chars=%d", len(resp.ToolCalls), len(resp.Content)),
+		})
 
-		// AI provided a final answer without tools
 		if len(resp.ToolCalls) == 0 {
 			if resp.Content != "" || resp.ReasoningContent != "" {
 				currentHistory = append(currentHistory, Message{
@@ -82,29 +119,57 @@ func (l *Loop) Run(ctx context.Context, systemPrompt string, history []Message, 
 			return currentHistory, resp.Content, nil
 		}
 
-		// AI wants to call tools. Append its "Thought" / Request
 		currentHistory = append(currentHistory, Message{
 			Role:             "assistant",
-			Content:          resp.Content, // Potentially empty or containing 'thought'
+			Content:          resp.Content,
 			ReasoningContent: resp.ReasoningContent,
-			ToolCalls:        resp.ToolCalls, // Very important for provider API consistency
+			ToolCalls:        resp.ToolCalls,
 		})
 
-		// Execute tools sequentially per PRD spec "- NG-02: as tool calls serão tratadas resolutivamente em cascata iterativa/síncrona na mesma Goroutine"
 		for _, call := range resp.ToolCalls {
-			log.Printf("Executing Tool: %s with args: %+v\n", call.Name, call.Arguments)
+			observability.Log("info", "agent.tool", "executing tool", observability.MergeFields(ContextFields(ctx), map[string]string{
+				"tool": call.Name,
+			}))
 
+			toolStartedAt := time.Now()
 			resultStr, toolErr := l.registry.Execute(ctx, call.Name, call.Arguments)
+			toolDuration := time.Since(toolStartedAt)
 
-			// If tool fails, return the error as text to the LLM
 			if toolErr != nil {
+				observability.Log("error", "agent.tool", "tool execution failed", observability.MergeFields(ContextFields(ctx), map[string]string{
+					"tool":        call.Name,
+					"duration_ms": fmt.Sprintf("%d", toolDuration.Milliseconds()),
+					"error":       toolErr.Error(),
+				}))
+				observability.Observe(ctx, l.observer, observability.Operation{
+					RunID:      ContextFields(ctx)["run_id"],
+					TeamID:     ContextFields(ctx)["team_id"],
+					TaskID:     ContextFields(ctx)["task_id"],
+					AgentName:  ContextFields(ctx)["agent"],
+					Component:  "agent.tool",
+					Operation:  call.Name,
+					Status:     "error",
+					DurationMS: toolDuration.Milliseconds(),
+					Summary:    toolErr.Error(),
+				})
 				errorPayload, _ := json.Marshal(map[string]string{
 					"error": toolErr.Error(),
 				})
 				resultStr = string(errorPayload)
+			} else {
+				observability.Observe(ctx, l.observer, observability.Operation{
+					RunID:      ContextFields(ctx)["run_id"],
+					TeamID:     ContextFields(ctx)["team_id"],
+					TaskID:     ContextFields(ctx)["task_id"],
+					AgentName:  ContextFields(ctx)["agent"],
+					Component:  "agent.tool",
+					Operation:  call.Name,
+					Status:     "ok",
+					DurationMS: toolDuration.Milliseconds(),
+					Summary:    fmt.Sprintf("result_chars=%d", len(resultStr)),
+				})
 			}
 
-			// Append tool observation
 			currentHistory = append(currentHistory, Message{
 				Role:       "tool",
 				Content:    resultStr,
@@ -113,6 +178,7 @@ func (l *Loop) Run(ctx context.Context, systemPrompt string, history []Message, 
 		}
 	}
 
+	observability.Log("warn", "agent.loop", "loop hit max iterations", ContextFields(ctx))
 	return currentHistory, "Desculpe, desisti ou deu timeout no processamento pois falhei nas chamadas em MAX iteracoes.", fmt.Errorf("max iterations reached")
 }
 
@@ -186,5 +252,3 @@ func augmentSystemPromptWithRuntimeCapabilities(systemPrompt string, tools []Too
 	}
 	return base + "\n\n" + strings.Join(lines, "\n")
 }
-
-

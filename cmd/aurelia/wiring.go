@@ -11,6 +11,7 @@ import (
 	"github.com/kocar/aurelia/internal/config"
 	"github.com/kocar/aurelia/internal/cron"
 	"github.com/kocar/aurelia/internal/mcp"
+	"github.com/kocar/aurelia/internal/observability"
 	"github.com/kocar/aurelia/internal/telegram"
 	"github.com/kocar/aurelia/internal/tools"
 	"gopkg.in/telebot.v3"
@@ -68,8 +69,9 @@ func registerSpawnAgentTool(
 	llmProvider agent.LLMProvider,
 	bot *telegram.BotController,
 	taskStore *agent.SQLiteTaskStore,
+	observer observability.Recorder,
 ) error {
-	teamManager, err := agent.NewTeamManager(taskStore)
+	teamManager, err := agent.NewTeamManagerWithObserver(taskStore, observer)
 	if err != nil {
 		return loggableError("initialize team manager: %v", err)
 	}

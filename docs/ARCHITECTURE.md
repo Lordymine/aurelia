@@ -220,6 +220,16 @@ Priority order:
 
 The architecture explicitly avoids treating larger prompts or vector search as the default fix for identity and continuity problems.
 
+Conversation continuity follows a simple local context-budget policy:
+
+- context capacity is resolved from a small provider/model table
+- prompt size is estimated locally before execution
+- when the estimated prompt crosses the soft threshold, Aurelia compacts older chat history into a deterministic summary note and trims the working window
+- when it crosses the hard threshold, Aurelia rotates the working window more aggressively while preserving the latest compact summary plus durable facts and notes
+
+This is intentionally not a provider-driven session-introspection subsystem.
+The runtime keeps continuity by deterministic local policy over SQLite-backed memory.
+
 ### Local Execution
 
 The runtime is expected to observe the environment, not only describe it.
@@ -231,6 +241,12 @@ That includes:
 - listing directories
 - running controlled local commands
 - acting on a canonical project `workdir`
+
+Operational observability is local-first and intentionally minimal:
+
+- correlated logs carry stable execution identifiers such as `run_id`, `team_id`, and `task_id` when available
+- critical runtime boundaries record short operational events in SQLite for recent inspection
+- inspection stays inside the product surface through lightweight debug commands instead of external APM dependencies by default
 
 ## Architectural Rules
 

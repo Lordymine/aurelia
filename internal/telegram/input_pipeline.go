@@ -37,10 +37,16 @@ func (bc *BotController) processInput(c telebot.Context, text string, parts []ag
 	if handled, err := bc.handleMemoryCommand(c, session); handled {
 		return err
 	}
+	if handled, err := bc.handleOpsCommand(c, session); handled {
+		return err
+	}
 	bc.storeRecentMedia(session)
 
 	if err := bc.persistIncomingContext(session, c.Sender().ID); err != nil {
 		log.Printf("Input persistence warning: %v\n", err)
+	}
+	if err := bc.manageConversationContext(session.ctx, session.convID); err != nil {
+		log.Printf("Context management warning: %v\n", err)
 	}
 
 	activeSkill, history, systemPrompt, allowedTools, err := bc.prepareExecution(session)
@@ -169,8 +175,21 @@ func (bc *BotController) handleMemoryCommand(c telebot.Context, session inputSes
 	return true, SendContextText(c, reply)
 }
 
+func (bc *BotController) handleOpsCommand(c telebot.Context, session inputSession) (bool, error) {
+	if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(session.text)), "/ops") {
+		return false, nil
+	}
+
+	reply, err := NewOpsCommandHandler(bc.ops).HandleText(context.Background(), session.text)
+	if err != nil {
+		_ = SendError(bc.bot, c.Chat(), err.Error())
+		return true, nil
+	}
+	return true, SendContextText(c, reply)
+}
+
 func (bc *BotController) persistIncomingContext(session inputSession, senderUserID int64) error {
-	if err := bc.memory.EnsureConversation(session.ctx, session.convID, senderUserID, "gemini"); err != nil {
+	if err := bc.memory.EnsureConversation(session.ctx, session.convID, senderUserID, bc.config.LLMProvider); err != nil {
 		return err
 	}
 	if bc.canonical != nil {
@@ -210,7 +229,10 @@ func (bc *BotController) buildAgentHistory(session inputSession) ([]agent.Messag
 		return nil, err
 	}
 
-	agentHistory := make([]agent.Message, 0, len(history))
+	agentHistory := make([]agent.Message, 0, len(history)+1)
+	if summary := bc.summaryPrefix(session.ctx, session.convID); summary != nil {
+		agentHistory = append(agentHistory, *summary)
+	}
 	for _, m := range history {
 		agentHistory = append(agentHistory, agent.Message{Role: m.Role, Content: m.Content})
 	}

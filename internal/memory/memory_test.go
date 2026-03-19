@@ -132,3 +132,41 @@ func TestGetRecentMessages_IsolatesConversations(t *testing.T) {
 		t.Fatalf("expected conv-b isolation, got %#v", msgsB)
 	}
 }
+
+func TestListMessagesAndTrimMessages(t *testing.T) {
+	mm := setupTestDB(t)
+	ctx := context.Background()
+
+	_ = mm.EnsureConversation(ctx, "conv-1", 123, "provider-a")
+	for i := 1; i <= 6; i++ {
+		if err := mm.AddMessage(ctx, "conv-1", "user", "msg "+string(rune('0'+i))); err != nil {
+			t.Fatalf("AddMessage(%d) error = %v", i, err)
+		}
+	}
+
+	all, err := mm.ListMessages(ctx, "conv-1", 0)
+	if err != nil {
+		t.Fatalf("ListMessages() error = %v", err)
+	}
+	if len(all) != 6 {
+		t.Fatalf("expected 6 messages, got %d", len(all))
+	}
+	if all[0].Content != "msg 1" || all[5].Content != "msg 6" {
+		t.Fatalf("unexpected ordering %#v", all)
+	}
+
+	if err := mm.TrimMessages(ctx, "conv-1", 2); err != nil {
+		t.Fatalf("TrimMessages() error = %v", err)
+	}
+
+	trimmed, err := mm.ListMessages(ctx, "conv-1", 0)
+	if err != nil {
+		t.Fatalf("ListMessages(trimmed) error = %v", err)
+	}
+	if len(trimmed) != 2 {
+		t.Fatalf("expected 2 messages after trim, got %d", len(trimmed))
+	}
+	if trimmed[0].Content != "msg 5" || trimmed[1].Content != "msg 6" {
+		t.Fatalf("unexpected trimmed messages %#v", trimmed)
+	}
+}

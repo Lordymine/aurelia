@@ -11,6 +11,7 @@ import (
 	"github.com/kocar/aurelia/internal/agent"
 	"github.com/kocar/aurelia/internal/config"
 	"github.com/kocar/aurelia/internal/memory"
+	"github.com/kocar/aurelia/internal/observability"
 	"github.com/kocar/aurelia/internal/persona"
 	"github.com/kocar/aurelia/internal/skill"
 	"github.com/kocar/aurelia/pkg/stt"
@@ -33,6 +34,7 @@ type BotController struct {
 	mediaMu          sync.Mutex
 	recentMedia      map[string]recentMedia
 	personasDir      string
+	ops              observability.Recorder
 }
 
 type pendingAlbum struct {
@@ -61,6 +63,7 @@ func NewBotController(
 	s stt.Transcriber,
 	canonical *persona.CanonicalIdentityService,
 	personasDir string,
+	ops observability.Recorder,
 ) (*BotController, error) {
 
 	pref := telebot.Settings{
@@ -86,6 +89,7 @@ func NewBotController(
 		pendingAlbums:    make(map[string]*pendingAlbum),
 		recentMedia:      make(map[string]recentMedia),
 		personasDir:      personasDir,
+		ops:              ops,
 	}
 
 	bc.setupRoutes()
@@ -95,6 +99,13 @@ func NewBotController(
 // GetBot exposes the underlying Telebot instance.
 func (bc *BotController) GetBot() *telebot.Bot {
 	return bc.bot
+}
+
+func (bc *BotController) GetOpsStore() observability.Recorder {
+	if bc == nil {
+		return nil
+	}
+	return bc.ops
 }
 
 // Start begins Telegram polling.

@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/kocar/aurelia/internal/agent"
+	"github.com/kocar/aurelia/internal/observability"
 )
 
 type Scheduler struct {
@@ -74,8 +76,13 @@ func (s *Scheduler) Start(ctx context.Context) error {
 
 func (s *Scheduler) runSingleJob(ctx context.Context, now time.Time, job CronJob) error {
 	startedAt := now
-	output, runErr := s.runtime.ExecuteJob(ctx, job)
+	runCtx := agent.WithRunContext(ctx, "cron:"+job.ID+":"+startedAt.Format(time.RFC3339))
+	observability.Log("info", "cron.scheduler", "executing cron job", observability.MergeFields(agent.ContextFields(runCtx), map[string]string{
+		"job_id": job.ID,
+	}))
+	output, runErr := s.runtime.ExecuteJob(runCtx, job)
 	finishedAt := s.clock.Now().UTC()
+	duration := finishedAt.Sub(startedAt)
 
 	exec := CronExecution{
 		ID:         uuid.NewString(),
@@ -95,6 +102,14 @@ func (s *Scheduler) runSingleJob(ctx context.Context, now time.Time, job CronJob
 		job.LastStatus = "success"
 		job.LastError = ""
 	}
+	observability.Observe(runCtx, s.config.Observer, observability.Operation{
+		RunID:      agent.ContextFields(runCtx)["run_id"],
+		Component:  "cron.scheduler",
+		Operation:  "execute_job",
+		Status:     exec.Status,
+		DurationMS: duration.Milliseconds(),
+		Summary:    "job_id=" + job.ID,
+	})
 
 	job.LastRunAt = &finishedAt
 

@@ -50,6 +50,9 @@ func (m *MemoryManager) consolidateExistingNote(ctx context.Context, existing, n
 	}
 
 	mergedSummary := mergeNoteSummaries(existing.Summary, note.Summary)
+	if note.Kind == "context_summary" {
+		mergedSummary = note.Summary
+	}
 	importance := existing.Importance
 	if note.Importance > importance {
 		importance = note.Importance
@@ -86,6 +89,16 @@ func (m *MemoryManager) findLatestNoteByTopicKind(ctx context.Context, conversat
 		return Note{}, false, fmt.Errorf("failed to query latest note: %w", err)
 	}
 	return note, true, nil
+}
+
+// GetLatestNote returns the latest note for a topic/kind pair.
+func (m *MemoryManager) GetLatestNote(ctx context.Context, conversationID, topic, kind string) (Note, bool, error) {
+	return m.findLatestNoteByTopicKind(
+		ctx,
+		strings.TrimSpace(conversationID),
+		strings.TrimSpace(topic),
+		strings.TrimSpace(kind),
+	)
 }
 
 // ListRecentNotes retrieves the newest notes for a conversation.

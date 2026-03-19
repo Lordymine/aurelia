@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/kocar/aurelia/internal/agent"
+	"github.com/kocar/aurelia/internal/observability"
 )
 
 type CronJob struct {
@@ -65,6 +66,5 @@ func (realClock) Now() time.Time {
 
 type SchedulerConfig struct {
 	PollInterval time.Duration
+	Observer     observability.Recorder
 }
-
-
