@@ -35,6 +35,8 @@ type BotController struct {
 	pendingAlbums    map[string]*pendingAlbum
 	mediaMu          sync.Mutex
 	recentMedia      map[string]recentMedia
+	mcpMu            sync.Mutex
+	recentMCP        map[string]recentMCPContext
 	personasDir      string
 	ops              observability.Recorder
 }
@@ -52,6 +54,11 @@ type albumPhoto struct {
 
 type recentMedia struct {
 	parts     []agent.ContentPart
+	updatedAt time.Time
+}
+
+type recentMCPContext struct {
+	servers   []string
 	updatedAt time.Time
 }
 
@@ -93,6 +100,7 @@ func NewBotController(
 		pendingBootstrap: make(map[int64]bootstrapState),
 		pendingAlbums:    make(map[string]*pendingAlbum),
 		recentMedia:      make(map[string]recentMedia),
+		recentMCP:        make(map[string]recentMCPContext),
 		personasDir:      personasDir,
 		ops:              ops,
 	}

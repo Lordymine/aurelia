@@ -46,33 +46,11 @@ func (l *Loop) Run(ctx context.Context, systemPrompt string, history []Message, 
 
 	currentHistory := make([]Message, len(history))
 	copy(currentHistory, history)
+	currentAllowedTools := cloneAllowedTools(allowedTools)
+	baseSystemPrompt := systemPrompt
 
-	tools := l.registry.FilterDefinitions(allowedTools)
-	tools = CompactToolsForPrompt(tools)
-	systemPrompt = augmentSystemPromptWithToolGuidance(systemPrompt, tools)
-	systemPrompt = augmentSystemPromptWithRuntimeCapabilities(systemPrompt, tools)
-	toolMetrics := MeasureToolPayload(tools)
-
-	var toolNames []string
-	for _, t := range tools {
-		toolNames = append(toolNames, t.Name)
-	}
-	observability.Log("info", "agent.loop", "starting loop run", observability.MergeFields(ContextFields(ctx), map[string]string{
-		"tools":              strings.Join(toolNames, ","),
-		"tool_count":         fmt.Sprintf("%d", toolMetrics.Count),
-		"tool_payload_bytes": fmt.Sprintf("%d", toolMetrics.SerializedBytes),
-	}))
-	observability.Observe(ctx, l.observer, observability.Operation{
-		RunID:      ContextFields(ctx)["run_id"],
-		TeamID:     ContextFields(ctx)["team_id"],
-		TaskID:     ContextFields(ctx)["task_id"],
-		AgentName:  ContextFields(ctx)["agent"],
-		Component:  "agent.loop",
-		Operation:  "tool_context",
-		Status:     "ok",
-		DurationMS: 0,
-		Summary:    fmt.Sprintf("tool_count=%d tool_payload_bytes=%d", toolMetrics.Count, toolMetrics.SerializedBytes),
-	})
+	tools, hiddenCapabilities, currentSystemPrompt := l.prepareExecutionSurface(ctx, baseSystemPrompt, currentAllowedTools)
+	l.observeToolContext(ctx, tools, hiddenCapabilities)
 
 	iterations := 0
 	for l.maxIterations < 0 || iterations < l.maxIterations {
@@ -91,7 +69,7 @@ func (l *Loop) Run(ctx context.Context, systemPrompt string, history []Message, 
 		}
 
 		startedAt := time.Now()
-		resp, err := l.llm.GenerateContent(ctx, systemPrompt, currentHistory, tools)
+		resp, err := l.llm.GenerateContent(ctx, currentSystemPrompt, currentHistory, tools)
 		duration := time.Since(startedAt)
 		if err != nil {
 			observability.Log("error", "agent.loop", "provider call failed", observability.MergeFields(ContextFields(ctx), map[string]string{
@@ -142,6 +120,30 @@ func (l *Loop) Run(ctx context.Context, systemPrompt string, history []Message, 
 		})
 
 		for _, call := range resp.ToolCalls {
+			if call.Name == requestToolAccessToolName {
+				capabilityID, _ := call.Arguments["capability"].(string)
+				expanded := resolveCapabilityToolNames(hiddenCapabilities, capabilityID)
+				if len(expanded) == 0 {
+					resultStr := capabilityAccessResult(capabilityID, hiddenCapabilities)
+					currentHistory = append(currentHistory, Message{
+						Role:       "tool",
+						Content:    resultStr,
+						ToolCallID: call.ID,
+					})
+					continue
+				}
+
+				currentAllowedTools = mergeToolNames(currentAllowedTools, expanded)
+				tools, hiddenCapabilities, currentSystemPrompt = l.prepareExecutionSurface(ctx, baseSystemPrompt, currentAllowedTools)
+				l.observeToolContext(ctx, tools, hiddenCapabilities)
+				currentHistory = append(currentHistory, Message{
+					Role:       "tool",
+					Content:    capabilityExpandedResult(capabilityID, expanded),
+					ToolCallID: call.ID,
+				})
+				continue
+			}
+
 			observability.Log("info", "agent.tool", "executing tool", observability.MergeFields(ContextFields(ctx), map[string]string{
 				"tool": call.Name,
 			}))
@@ -204,6 +206,98 @@ func (l *Loop) Run(ctx context.Context, systemPrompt string, history []Message, 
 
 	observability.Log("warn", "agent.loop", "loop hit max iterations", ContextFields(ctx))
 	return currentHistory, "Desculpe, desisti ou deu timeout no processamento pois falhei nas chamadas em MAX iteracoes.", fmt.Errorf("max iterations reached")
+}
+
+func (l *Loop) prepareExecutionSurface(ctx context.Context, baseSystemPrompt string, allowedTools []string) ([]Tool, []capabilityDefinition, string) {
+	visibleTools := l.registry.FilterDefinitions(allowedTools)
+	hiddenCapabilities := []capabilityDefinition(nil)
+	if DynamicToolAccessFromContext(ctx) {
+		hiddenCapabilities = BuildHiddenCapabilityCatalog(l.registry.GetDefinitions(), allowedTools)
+	}
+	return l.prepareExecutionSurfaceWithCapabilities(baseSystemPrompt, visibleTools, hiddenCapabilities)
+}
+
+func (l *Loop) prepareExecutionSurfaceWithCapabilities(baseSystemPrompt string, visibleTools []Tool, hiddenCapabilities []capabilityDefinition) ([]Tool, []capabilityDefinition, string) {
+	tools := append([]Tool(nil), visibleTools...)
+	if requestTool := capabilityRequestTool(hiddenCapabilities); requestTool != nil {
+		tools = append(tools, *requestTool)
+	}
+	tools = CompactToolsForPrompt(tools)
+
+	systemPrompt := augmentSystemPromptWithToolGuidance(baseSystemPrompt, tools)
+	systemPrompt = augmentSystemPromptWithRuntimeCapabilities(systemPrompt, tools)
+	if prompt := buildCapabilityCatalogPrompt(hiddenCapabilities); prompt != "" {
+		systemPrompt = strings.TrimSpace(systemPrompt) + "\n\n" + prompt
+	}
+	return tools, hiddenCapabilities, systemPrompt
+}
+
+func (l *Loop) observeToolContext(ctx context.Context, tools []Tool, hiddenCapabilities []capabilityDefinition) {
+	toolMetrics := MeasureToolPayload(tools)
+	var toolNames []string
+	for _, t := range tools {
+		toolNames = append(toolNames, t.Name)
+	}
+	fields := map[string]string{
+		"tools":                   strings.Join(toolNames, ","),
+		"tool_count":              fmt.Sprintf("%d", toolMetrics.Count),
+		"tool_payload_bytes":      fmt.Sprintf("%d", toolMetrics.SerializedBytes),
+		"hidden_capability_count": fmt.Sprintf("%d", len(hiddenCapabilities)),
+	}
+	observability.Log("info", "agent.loop", "starting loop run", observability.MergeFields(ContextFields(ctx), fields))
+	observability.Observe(ctx, l.observer, observability.Operation{
+		RunID:      ContextFields(ctx)["run_id"],
+		TeamID:     ContextFields(ctx)["team_id"],
+		TaskID:     ContextFields(ctx)["task_id"],
+		AgentName:  ContextFields(ctx)["agent"],
+		Component:  "agent.loop",
+		Operation:  "tool_context",
+		Status:     "ok",
+		DurationMS: 0,
+		Summary:    fmt.Sprintf("tool_count=%d tool_payload_bytes=%d hidden_capabilities=%d", toolMetrics.Count, toolMetrics.SerializedBytes, len(hiddenCapabilities)),
+	})
+}
+
+func mergeToolNames(current []string, additional []string) []string {
+	selected := make(map[string]bool, len(current)+len(additional))
+	for _, name := range current {
+		selected[name] = true
+	}
+	for _, name := range additional {
+		selected[name] = true
+	}
+	out := make([]string, 0, len(selected))
+	for name := range selected {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func cloneAllowedTools(allowedTools []string) []string {
+	if allowedTools == nil {
+		return nil
+	}
+	cloned := make([]string, len(allowedTools))
+	copy(cloned, allowedTools)
+	return cloned
+}
+
+func capabilityAccessResult(requested string, hiddenCapabilities []capabilityDefinition) string {
+	if len(hiddenCapabilities) == 0 {
+		return `{"error":"no hidden capabilities available for expansion in this execution"}`
+	}
+	ids := make([]string, 0, len(hiddenCapabilities))
+	for _, capability := range hiddenCapabilities {
+		ids = append(ids, capability.ID)
+	}
+	sort.Strings(ids)
+	return fmt.Sprintf(`{"error":"unknown capability %q","available_capabilities":%q}`, requested, strings.Join(ids, ","))
+}
+
+func capabilityExpandedResult(capabilityID string, toolNames []string) string {
+	sort.Strings(toolNames)
+	return fmt.Sprintf(`{"status":"expanded","capability":%q,"tools":%q}`, capabilityID, strings.Join(toolNames, ","))
 }
 
 func augmentSystemPromptWithToolGuidance(systemPrompt string, tools []Tool) string {

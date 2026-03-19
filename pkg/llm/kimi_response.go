@@ -124,4 +124,11 @@ func extractBalancedJSONObject(text string) (string, bool) {
 	return "", false
 }
 
-
+func malformedToolCallContentError(content string) error {
+	preview := strings.TrimSpace(content)
+	runes := []rune(preview)
+	if len(runes) > 160 {
+		preview = strings.TrimSpace(string(runes[:160])) + "..."
+	}
+	return fmt.Errorf("kimi returned malformed tool-call content without structured tool_calls: %s", preview)
+}

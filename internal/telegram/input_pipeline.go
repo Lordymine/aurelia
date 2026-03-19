@@ -75,6 +75,7 @@ func newInputSession(c telebot.Context, text string, parts []agent.ContentPart) 
 	senderID := fmt.Sprintf("%d", c.Sender().ID)
 	convID := senderID
 	ctx := agent.WithRunContext(agent.WithTeamContext(context.Background(), convID, senderID), uuid.NewString())
+	ctx = agent.WithDynamicToolAccess(ctx, true)
 	message := agent.Message{Role: "user", Content: text, Parts: append([]agent.ContentPart(nil), parts...)}
 	if len(message.Parts) == 0 {
 		message.Parts = []agent.ContentPart{{Type: agent.ContentPartText, Text: text}}
@@ -299,15 +300,15 @@ func (s inputSession) persistedContent() string {
 
 func (bc *BotController) resolveExecutionPrompt(session inputSession) (string, []string) {
 	if bc.canonical == nil {
-		return defaultSystemPrompt, agent.ResolveAllowedToolsForQueryWithDefinitions(session.text, nil, bc.toolDefinitions())
+		return defaultSystemPrompt, agent.ResolveAllowedToolsForQueryWithDefinitions(session.text, nil, bc.toolDefinitions(), bc.recentMCPServers(session.convID))
 	}
 
 	prompt, tools, err := bc.canonical.BuildPromptForQuery(session.ctx, session.senderID, session.convID, session.text)
 	if err != nil {
 		log.Printf("Persona files not found or invalid. Using default prompt. Error: %v\n", err)
-		return defaultSystemPrompt, agent.ResolveAllowedToolsForQueryWithDefinitions(session.text, nil, bc.toolDefinitions())
+		return defaultSystemPrompt, agent.ResolveAllowedToolsForQueryWithDefinitions(session.text, nil, bc.toolDefinitions(), bc.recentMCPServers(session.convID))
 	}
-	return prompt, agent.ResolveAllowedToolsForQueryWithDefinitions(session.text, tools, bc.toolDefinitions())
+	return prompt, agent.ResolveAllowedToolsForQueryWithDefinitions(session.text, tools, bc.toolDefinitions(), bc.recentMCPServers(session.convID))
 }
 
 func (bc *BotController) toolDefinitions() []agent.Tool {
@@ -321,8 +322,69 @@ func (bc *BotController) executeConversation(c telebot.Context, session inputSes
 	stopTyping := startChatActionLoop(bc.bot, c.Chat(), telebot.Typing, 4*time.Second)
 	defer stopTyping()
 
-	_, finalAnswer, err := bc.executor.Execute(session.ctx, systemPrompt, activeSkill, history, allowedTools)
+	finalHistory, finalAnswer, err := bc.executor.Execute(session.ctx, systemPrompt, activeSkill, history, allowedTools)
+	if err == nil {
+		bc.rememberRecentMCPServers(session.convID, finalHistory)
+	}
 	return finalAnswer, err
+}
+
+func (bc *BotController) recentMCPServers(conversationID string) []string {
+	if bc == nil {
+		return nil
+	}
+
+	bc.mcpMu.Lock()
+	defer bc.mcpMu.Unlock()
+
+	recent, ok := bc.recentMCP[conversationID]
+	if !ok {
+		return nil
+	}
+	if time.Since(recent.updatedAt) > 10*time.Minute {
+		delete(bc.recentMCP, conversationID)
+		return nil
+	}
+	return append([]string(nil), recent.servers...)
+}
+
+func (bc *BotController) rememberRecentMCPServers(conversationID string, history []agent.Message) {
+	if bc == nil || conversationID == "" {
+		return
+	}
+
+	servers := extractRecentMCPServers(history)
+	if len(servers) == 0 {
+		return
+	}
+
+	bc.mcpMu.Lock()
+	defer bc.mcpMu.Unlock()
+	bc.recentMCP[conversationID] = recentMCPContext{
+		servers:   servers,
+		updatedAt: time.Now(),
+	}
+}
+
+func extractRecentMCPServers(history []agent.Message) []string {
+	servers := make(map[string]bool)
+	for _, message := range history {
+		for _, call := range message.ToolCalls {
+			serverName, _ := agent.SplitMCPToolName(call.Name)
+			if serverName == "" {
+				continue
+			}
+			servers[serverName] = true
+		}
+	}
+	if len(servers) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(servers))
+	for serverName := range servers {
+		out = append(out, serverName)
+	}
+	return out
 }
 
 func (bc *BotController) persistAssistantAnswer(session inputSession, finalAnswer string) error {

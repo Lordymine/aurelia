@@ -198,6 +198,7 @@ Tool exposure should follow the same rule.
 - interface layers may trigger execution with an allowed-tool set, but should not own the selection policy
 - the default path should expose the minimum necessary tool surface instead of the full registry
 - MCP tools should stay out of ordinary chat by default, but explicit user requests for a registered MCP server or tool, such as `context7`, may expose only the matching `mcp_*` subset
+- MCP selection should be inferred from the live tool registry with light conversation continuity, so a server used successfully in the current thread can remain available for immediate follow-up turns without reopening the whole MCP surface
 
 ## Core Runtime Model
 
@@ -218,6 +219,7 @@ For token efficiency and provider-side cache friendliness:
 
 - tool exposure should be minimal for the current execution
 - explicit requests for a registered MCP capability should resolve only the matching MCP tools instead of the whole MCP surface
+- when dynamic tool access is enabled for the user-facing chat runtime, Aurelia may expose a small on-demand capability catalog plus a lightweight expansion tool instead of sending every hidden tool schema up front
 - the serialized tool block should be compact and stable for equivalent executions
 - oversized tool outputs should be compacted out of active history and preserved only through local operational artifacts when needed
 

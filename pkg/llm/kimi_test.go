@@ -1,6 +1,11 @@
 package llm
 
-import "testing"
+import (
+	"strings"
+	"testing"
+
+	"github.com/kocar/aurelia/internal/agent"
+)
 
 func TestExtractToolCallsFromContent_ParsesSinglePseudoToolCall(t *testing.T) {
 	t.Parallel()
@@ -54,5 +59,41 @@ func TestExtractToolCallsFromContent_ParsesPseudoToolCallWithEmojiAndSuffix(t *t
 	}
 	if cleanedContent != "" {
 		t.Fatalf("expected cleaned content to be empty, got %q", cleanedContent)
+	}
+}
+
+func TestKimiProviderApplyFallbackToolCalls_RejectsMalformedCallingToolsContent(t *testing.T) {
+	t.Parallel()
+
+	provider := &KimiProvider{}
+	result := &agent.ModelResponse{
+		Content: "Calling tools: list_dir, read_file, read_file, read_file",
+	}
+
+	err := provider.applyFallbackToolCalls(result)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if !strings.Contains(err.Error(), "malformed tool-call content") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestKimiProviderApplyFallbackToolCalls_KeepsStructuredToolCallsWithoutSyntheticContent(t *testing.T) {
+	t.Parallel()
+
+	provider := &KimiProvider{}
+	result := &agent.ModelResponse{
+		ToolCalls: []agent.ToolCall{{
+			ID:   "call-1",
+			Name: "read_file",
+		}},
+	}
+
+	if err := provider.applyFallbackToolCalls(result); err != nil {
+		t.Fatalf("applyFallbackToolCalls() error = %v", err)
+	}
+	if result.Content != "" {
+		t.Fatalf("expected content to remain empty, got %q", result.Content)
 	}
 }

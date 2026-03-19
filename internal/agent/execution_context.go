@@ -12,6 +12,7 @@ const (
 	runIDContextKey    executionContextKey = "run_id"
 	agentKeyContextKey executionContextKey = "agent_name"
 	workdirContextKey  executionContextKey = "workdir"
+	dynamicToolAccess  executionContextKey = "dynamic_tool_access"
 )
 
 func WithTeamContext(ctx context.Context, teamKey, userID string) context.Context {
@@ -64,6 +65,10 @@ func WithWorkdirContext(ctx context.Context, workdir string) context.Context {
 	return context.WithValue(ctx, workdirContextKey, workdir)
 }
 
+func WithDynamicToolAccess(ctx context.Context, enabled bool) context.Context {
+	return context.WithValue(ctx, dynamicToolAccess, enabled)
+}
+
 func AgentContextFromContext(ctx context.Context) (agentName string, ok bool) {
 	if ctx == nil {
 		return "", false
@@ -101,6 +106,14 @@ func WorkdirFromContext(ctx context.Context) (workdir string, ok bool) {
 	}
 
 	return workdir, true
+}
+
+func DynamicToolAccessFromContext(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	enabled, ok := ctx.Value(dynamicToolAccess).(bool)
+	return ok && enabled
 }
 
 func ContextFields(ctx context.Context) map[string]string {

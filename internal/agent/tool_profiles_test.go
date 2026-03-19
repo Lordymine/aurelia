@@ -87,7 +87,7 @@ func TestResolveAllowedToolsForQueryWithDefinitions_ExposesMatchingMCPServer(t *
 		{Name: "mcp_playwright_browser_navigate"},
 	}
 
-	allowed := ResolveAllowedToolsForQueryWithDefinitions("use o context7 para buscar a doc atual", nil, defs)
+	allowed := ResolveAllowedToolsForQueryWithDefinitions("use o context7 para buscar a doc atual", nil, defs, nil)
 	expected := []string{"mcp_context7_get_library_docs", "mcp_context7_resolve_library_id"}
 	if !reflect.DeepEqual(allowed, expected) {
 		t.Fatalf("expected %v, got %v", expected, allowed)
@@ -102,8 +102,39 @@ func TestResolveAllowedToolsForQueryWithDefinitions_DoesNotExposeUnrelatedMCPToo
 		{Name: "mcp_playwright_browser_navigate"},
 	}
 
-	allowed := ResolveAllowedToolsForQueryWithDefinitions("quero usar playwright para abrir a pagina", nil, defs)
+	allowed := ResolveAllowedToolsForQueryWithDefinitions("quero usar playwright para abrir a pagina", nil, defs, nil)
 	expected := []string{"mcp_playwright_browser_navigate"}
+	if !reflect.DeepEqual(allowed, expected) {
+		t.Fatalf("expected %v, got %v", expected, allowed)
+	}
+}
+
+func TestResolveAllowedToolsForQueryWithDefinitions_MatchesFuzzyServerName(t *testing.T) {
+	t.Parallel()
+
+	defs := []Tool{
+		{Name: "mcp_playwright_browser_navigate"},
+		{Name: "mcp_playwright_browser_snapshot"},
+	}
+
+	allowed := ResolveAllowedToolsForQueryWithDefinitions("usa o playwrite para abrir uma janela", nil, defs, nil)
+	expected := []string{"mcp_playwright_browser_navigate", "mcp_playwright_browser_snapshot"}
+	if !reflect.DeepEqual(allowed, expected) {
+		t.Fatalf("expected %v, got %v", expected, allowed)
+	}
+}
+
+func TestResolveAllowedToolsForQueryWithDefinitions_ReusesRecentMCPOnContinuation(t *testing.T) {
+	t.Parallel()
+
+	defs := []Tool{
+		{Name: "mcp_playwright_browser_navigate"},
+		{Name: "mcp_playwright_browser_snapshot"},
+		{Name: "mcp_context7_get_library_docs"},
+	}
+
+	allowed := ResolveAllowedToolsForQueryWithDefinitions("agora nessa janela navega para o google", nil, defs, []string{"playwright"})
+	expected := []string{"mcp_playwright_browser_navigate", "mcp_playwright_browser_snapshot", "web_search"}
 	if !reflect.DeepEqual(allowed, expected) {
 		t.Fatalf("expected %v, got %v", expected, allowed)
 	}

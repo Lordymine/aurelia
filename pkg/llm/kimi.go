@@ -2,7 +2,6 @@ package llm
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -51,31 +50,21 @@ func (p *KimiProvider) GenerateContent(
 		return nil, err
 	}
 
-	p.applyFallbackToolCalls(result)
-	p.ensureToolCallContent(result)
+	if err := p.applyFallbackToolCalls(result); err != nil {
+		return nil, err
+	}
 	return result, nil
 }
 
-func (p *KimiProvider) applyFallbackToolCalls(result *agent.ModelResponse) {
+func (p *KimiProvider) applyFallbackToolCalls(result *agent.ModelResponse) error {
 	if len(result.ToolCalls) == 0 && strings.HasPrefix(strings.TrimSpace(result.Content), "Calling tools:") {
 		fallbackCalls, cleanedContent := extractToolCallsFromContent(result.Content)
 		if len(fallbackCalls) > 0 {
 			result.ToolCalls = fallbackCalls
 			result.Content = cleanedContent
+			return nil
 		}
+		return malformedToolCallContentError(result.Content)
 	}
+	return nil
 }
-
-func (p *KimiProvider) ensureToolCallContent(result *agent.ModelResponse) {
-	if len(result.ToolCalls) == 0 || result.Content != "" {
-		return
-	}
-
-	var callNames []string
-	for _, tc := range result.ToolCalls {
-		callNames = append(callNames, tc.Name)
-	}
-	result.Content = fmt.Sprintf("Calling tools: %s", strings.Join(callNames, ", "))
-}
-
-

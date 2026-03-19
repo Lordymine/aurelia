@@ -3,6 +3,7 @@ package agent
 import (
 	"sort"
 	"strings"
+	"unicode"
 )
 
 const (
@@ -64,22 +65,17 @@ func ResolveAllowedToolsForQuery(query string, explicit []string) []string {
 		}
 	}
 
-	allowed := make([]string, 0, len(selected))
-	for tool := range selected {
-		allowed = append(allowed, tool)
-	}
-	sort.Strings(allowed)
-	return allowed
+	return sortedKeys(selected)
 }
 
-func ResolveAllowedToolsForQueryWithDefinitions(query string, explicit []string, defs []Tool) []string {
+func ResolveAllowedToolsForQueryWithDefinitions(query string, explicit []string, defs []Tool, recentMCPServers []string) []string {
 	allowed := ResolveAllowedToolsForQuery(query, explicit)
 	selected := make(map[string]bool, len(allowed))
 	for _, tool := range allowed {
 		selected[tool] = true
 	}
 
-	for _, tool := range resolveExplicitMCPTools(query, defs) {
+	for _, tool := range resolveRelevantMCPTools(query, defs, recentMCPServers) {
 		selected[tool] = true
 	}
 
@@ -152,7 +148,8 @@ func selectToolProfiles(query string) []string {
 	if matchesAny(query, "rodar", "execut", "run ", "run_command", "test", "teste", "build", "compil", "lint", "healthcheck", "endpoint", "servidor", "server", "npm", "go test", "pytest", "cargo", "uv ", "docker") {
 		selected = append(selected, ToolProfileLocalExec)
 	}
-	if matchesAny(query, "arquivo", "file", "ler", "read", "editar", "edit", "escrever", "write", "pasta", "dir", "diretorio", "codigo", "código", "source", "repo", "repositorio") {
+	if matchesAny(query, "arquivo", "ler", "editar", "escrever", "pasta", "diretorio", "codigo", "source", "repo", "repositorio") ||
+		queryHasAnyToken(query, "file", "read", "edit", "write", "dir") {
 		selected = append(selected, ToolProfileLocalFiles)
 	}
 
@@ -203,44 +200,65 @@ func sortedKeys(values map[string]bool) []string {
 	return out
 }
 
-func resolveExplicitMCPTools(query string, defs []Tool) []string {
+func resolveRelevantMCPTools(query string, defs []Tool, recentMCPServers []string) []string {
 	query = normalizeIntentQuery(query)
 	if query == "" || len(defs) == 0 {
 		return nil
 	}
 
-	selected := make(map[string]bool)
-	for _, def := range defs {
-		if !strings.HasPrefix(def.Name, "mcp_") {
-			continue
-		}
-
-		if queryMentionsMCPTool(query, def.Name) {
-			selected[def.Name] = true
+	servers := groupMCPToolsByServer(defs)
+	selectedServers := make(map[string]bool)
+	for serverName, tools := range servers {
+		if queryMentionsMCPServer(query, serverName, tools) {
+			selectedServers[serverName] = true
 		}
 	}
 
+	if queryLooksLikeContinuation(query) {
+		for _, serverName := range recentMCPServers {
+			serverName = normalizeMCPToken(serverName)
+			if serverName == "" {
+				continue
+			}
+			if _, ok := servers[serverName]; ok {
+				selectedServers[serverName] = true
+			}
+		}
+	}
+
+	selected := make(map[string]bool)
+	for serverName := range selectedServers {
+		for _, tool := range servers[serverName] {
+			selected[tool.Name] = true
+		}
+	}
 	return sortedKeys(selected)
 }
 
-func queryMentionsMCPTool(query, toolName string) bool {
-	normalizedTool := normalizeIntentQuery(strings.ReplaceAll(toolName, "_", " "))
-	if normalizedTool != "" && strings.Contains(query, normalizedTool) {
+func queryMentionsMCPServer(query, serverName string, tools []Tool) bool {
+	serverName = normalizeMCPToken(serverName)
+	if serverName == "" {
+		return false
+	}
+
+	if queryContainsServerName(query, serverName) {
 		return true
 	}
 
-	serverName, remoteName := splitMCPToolName(toolName)
-	if serverName != "" && strings.Contains(query, normalizeIntentQuery(serverName)) {
-		return true
-	}
-	if remoteName != "" && strings.Contains(query, normalizeIntentQuery(strings.ReplaceAll(remoteName, "_", " "))) {
-		return true
+	for _, tool := range tools {
+		toolText := normalizeIntentQuery(strings.TrimSpace(tool.Name + " " + tool.Description))
+		if toolText == "" {
+			continue
+		}
+		if strings.Contains(query, toolText) || strings.Contains(toolText, query) {
+			return true
+		}
 	}
 
 	return false
 }
 
-func splitMCPToolName(toolName string) (serverName string, remoteName string) {
+func SplitMCPToolName(toolName string) (serverName string, remoteName string) {
 	if !strings.HasPrefix(toolName, "mcp_") {
 		return "", ""
 	}
@@ -253,4 +271,164 @@ func splitMCPToolName(toolName string) (serverName string, remoteName string) {
 	serverName = parts[0]
 	remoteName = strings.Join(parts[1:], "_")
 	return serverName, remoteName
+}
+
+func groupMCPToolsByServer(defs []Tool) map[string][]Tool {
+	grouped := make(map[string][]Tool)
+	for _, def := range defs {
+		serverName, _ := SplitMCPToolName(def.Name)
+		if serverName == "" {
+			continue
+		}
+		grouped[serverName] = append(grouped[serverName], def)
+	}
+	return grouped
+}
+
+func queryContainsServerName(query, serverName string) bool {
+	serverName = normalizeMCPToken(serverName)
+	if serverName == "" {
+		return false
+	}
+
+	collapsedQuery := collapseAlphaNumeric(query)
+	if strings.Contains(collapsedQuery, serverName) {
+		return true
+	}
+
+	for _, token := range tokenizeAlphaNumeric(query) {
+		if token == serverName {
+			return true
+		}
+		distance := levenshteinDistance(token, serverName)
+		if len(serverName) >= 8 && distance <= 3 {
+			return true
+		}
+		if len(serverName) >= 5 && distance <= 1 {
+			return true
+		}
+	}
+
+	return false
+}
+
+func queryLooksLikeContinuation(query string) bool {
+	return matchesAny(query,
+		"agora",
+		"nessa",
+		"nesta",
+		"nesse",
+		"nessa janela",
+		"nessa aba",
+		"nessa tela",
+		"continue",
+		"continua",
+		"prossiga",
+		"vai",
+		"entao",
+		"depois",
+		"em seguida",
+		"segue",
+	)
+}
+
+func queryHasAnyToken(query string, needles ...string) bool {
+	tokens := tokenizeAlphaNumeric(query)
+	if len(tokens) == 0 {
+		return false
+	}
+	seen := make(map[string]bool, len(tokens))
+	for _, token := range tokens {
+		seen[token] = true
+	}
+	for _, needle := range needles {
+		needle = normalizeMCPToken(needle)
+		if needle == "" {
+			continue
+		}
+		if seen[needle] {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeMCPToken(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	value = strings.ReplaceAll(value, "_", "")
+	value = strings.ReplaceAll(value, "-", "")
+	value = strings.ReplaceAll(value, " ", "")
+	return value
+}
+
+func collapseAlphaNumeric(value string) string {
+	var builder strings.Builder
+	for _, r := range strings.ToLower(value) {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			builder.WriteRune(r)
+		}
+	}
+	return builder.String()
+}
+
+func tokenizeAlphaNumeric(value string) []string {
+	fields := strings.FieldsFunc(strings.ToLower(value), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	})
+	out := make([]string, 0, len(fields))
+	for _, field := range fields {
+		field = normalizeMCPToken(field)
+		if field == "" {
+			continue
+		}
+		out = append(out, field)
+	}
+	return out
+}
+
+func levenshteinDistance(a, b string) int {
+	if a == b {
+		return 0
+	}
+	if a == "" {
+		return len([]rune(b))
+	}
+	if b == "" {
+		return len([]rune(a))
+	}
+
+	ar := []rune(a)
+	br := []rune(b)
+	prev := make([]int, len(br)+1)
+	for j := range prev {
+		prev[j] = j
+	}
+
+	for i, ra := range ar {
+		curr := make([]int, len(br)+1)
+		curr[0] = i + 1
+		for j, rb := range br {
+			cost := 0
+			if ra != rb {
+				cost = 1
+			}
+			curr[j+1] = minInt(
+				prev[j+1]+1,
+				curr[j]+1,
+				prev[j]+cost,
+			)
+		}
+		prev = curr
+	}
+	return prev[len(br)]
+}
+
+func minInt(values ...int) int {
+	best := 0
+	for i, value := range values {
+		if i == 0 || value < best {
+			best = value
+		}
+	}
+	return best
 }

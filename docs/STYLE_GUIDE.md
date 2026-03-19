@@ -173,6 +173,8 @@ For this project:
 - do not move domain logic into Telegram handlers
 - do not rebuild tool selection logic in interface layers; use canonical runtime helpers and expose the minimum necessary tool surface
 - do not expose the full MCP surface to ordinary chat; when MCP is needed, resolve only the explicitly requested registered server or tool subset
+- do not hardcode provider- or server-specific MCP routing in interface code when the live registry can infer the relevant server and preserve short conversation continuity
+- do not send every hidden tool schema to the model when a dynamic capability catalog plus explicit runtime expansion can preserve behavior with lower token cost
 - do not append oversized raw tool output to active history when a compact deterministic summary plus local artifact is enough
 - do not bypass the team model by letting workers speak directly to the user
 - do not introduce architectural sprawl without a documented reason
