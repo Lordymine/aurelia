@@ -39,25 +39,21 @@ var modelContextWindows = map[string]int{
 
 // ContextWindow returns the best-effort context window for a provider/model pair.
 func ContextWindow(provider, model string) int {
-	key := normalizeContextKey(provider, model)
+	key := ProviderModelKey(provider, model)
 	if limit, ok := modelContextWindows[key]; ok {
 		return limit
 	}
 
-	switch strings.TrimSpace(strings.ToLower(provider)) {
+	switch NormalizeProvider(provider) {
 	case "openrouter", "kilo":
-		return inferGatewayModelContextWindow(model)
+		return inferGatewayModelContextWindow(NormalizeModelID(provider, model))
 	default:
 		return unknownContextWindow
 	}
 }
 
-func normalizeContextKey(provider, model string) string {
-	return strings.TrimSpace(strings.ToLower(provider)) + "/" + strings.TrimSpace(strings.ToLower(model))
-}
-
 func inferGatewayModelContextWindow(model string) int {
-	lower := strings.TrimSpace(strings.ToLower(model))
+	lower := NormalizeModelID("", model)
 	if strings.HasPrefix(lower, "openai/") || strings.Contains(lower, "/gpt-5") {
 		return 400000
 	}
@@ -67,7 +63,7 @@ func inferGatewayModelContextWindow(model string) int {
 	if strings.Contains(lower, "claude") {
 		return 200000
 	}
-	if strings.Contains(lower, "gemini-2.5") {
+	if strings.Contains(lower, "gemini-2.5") || strings.Contains(lower, "gemini-3.1") {
 		return 1048576
 	}
 	if strings.Contains(lower, "qwen3-coder-plus") {
@@ -75,6 +71,12 @@ func inferGatewayModelContextWindow(model string) int {
 	}
 	if strings.Contains(lower, "glm-5") {
 		return 128000
+	}
+	if strings.Contains(lower, "glm-4.7") {
+		return 128000
+	}
+	if strings.Contains(lower, "glm-4.6v") || strings.Contains(lower, "glm-4.5-air") {
+		return 65536
 	}
 	return unknownContextWindow
 }

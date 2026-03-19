@@ -259,6 +259,18 @@ func TestOnboardingUI_KiloKeyInputTargetsKiloSecret(t *testing.T) {
 	}
 }
 
+func TestLLMProviderChoicesMatchLabels(t *testing.T) {
+	choices := llmProviderChoices()
+	labels := llmProviderLabels()
+
+	if len(choices) != len(labels) {
+		t.Fatalf("choices=%d labels=%d", len(choices), len(labels))
+	}
+	if len(choices) == 0 {
+		t.Fatal("expected provider choices")
+	}
+}
+
 func TestOnboardingUI_OpenAICodexSkipsAPIKeyStep(t *testing.T) {
 	ui := newOnboardingUI(config.EditableConfig{
 		LLMProvider:      "openai",
@@ -401,7 +413,7 @@ func TestOnboardingUI_ModelVisionToggleFiltersResults(t *testing.T) {
 	})
 	ui.step = stepLLMModel
 	ui.allModelOptions = []llm.ModelOption{
-		{ID: "z-ai/glm-5-turbo", Name: "GLM-5 Turbo"},
+		{ID: "zai/glm-5-turbo", Name: "GLM-5 Turbo"},
 		{ID: "openai/gpt-5.4", Name: "GPT-5.4", SupportsImageInput: true},
 	}
 	ui.modelOptions = append([]llm.ModelOption(nil), ui.allModelOptions...)

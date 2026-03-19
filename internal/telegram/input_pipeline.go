@@ -65,7 +65,9 @@ func (bc *BotController) processInput(c telebot.Context, text string, parts []ag
 		return nil
 	}
 
-	bc.persistAssistantAnswer(session, finalAnswer)
+	if err := bc.persistAssistantAnswer(session, finalAnswer); err != nil {
+		log.Printf("Assistant persistence warning: %v\n", err)
+	}
 	return bc.deliverFinalAnswer(c, finalAnswer, requiresAudio)
 }
 
@@ -192,19 +194,20 @@ func (bc *BotController) persistIncomingContext(session inputSession, senderUser
 	if err := bc.memory.EnsureConversation(session.ctx, session.convID, senderUserID, bc.config.LLMProvider); err != nil {
 		return err
 	}
+	var persistErr error
 	if bc.canonical != nil {
-		_ = bc.canonical.ApplyFactsAndSync(session.ctx, session.senderID, extractFactsFromConversation(session.text, session.senderID))
+		persistErr = errors.Join(persistErr, bc.canonical.ApplyFactsAndSync(session.ctx, session.senderID, extractFactsFromConversation(session.text, session.senderID)))
 	}
-	_ = persistConversationNote(session.ctx, bc.memory, session.convID, session.text)
-	_ = bc.memory.AddMessage(session.ctx, session.convID, "user", session.persistedContent())
-	_ = bc.memory.AddArchiveEntry(session.ctx, memory.ArchiveEntry{
+	persistErr = errors.Join(persistErr, persistConversationNote(session.ctx, bc.memory, session.convID, session.text))
+	persistErr = errors.Join(persistErr, bc.memory.AddMessage(session.ctx, session.convID, "user", session.persistedContent()))
+	persistErr = errors.Join(persistErr, bc.memory.AddArchiveEntry(session.ctx, memory.ArchiveEntry{
 		ConversationID: session.convID,
 		SessionID:      session.convID,
 		Role:           "user",
 		Content:        session.persistedContent(),
 		MessageType:    "chat",
-	})
-	return nil
+	}))
+	return persistErr
 }
 
 func (bc *BotController) prepareExecution(session inputSession) (*skill.Skill, []agent.Message, string, []string, error) {
@@ -230,7 +233,11 @@ func (bc *BotController) buildAgentHistory(session inputSession) ([]agent.Messag
 	}
 
 	agentHistory := make([]agent.Message, 0, len(history)+1)
-	if summary := bc.summaryPrefix(session.ctx, session.convID); summary != nil {
+	summary, err := bc.summaryPrefix(session.ctx, session.convID)
+	if err != nil {
+		return nil, err
+	}
+	if summary != nil {
 		agentHistory = append(agentHistory, *summary)
 	}
 	for _, m := range history {
@@ -254,6 +261,20 @@ func resolveActiveSkill(skills map[string]skill.Skill, targetSkill string) *skil
 		return nil
 	}
 	return &s
+}
+
+func (bc *BotController) manageConversationContext(ctx context.Context, conversationID string) error {
+	if bc.contextPolicy == nil {
+		return nil
+	}
+	return bc.contextPolicy.ManageConversation(ctx, bc.config.LLMProvider, bc.config.LLMModel, conversationID, bc.config.MemoryWindowSize)
+}
+
+func (bc *BotController) summaryPrefix(ctx context.Context, conversationID string) (*agent.Message, error) {
+	if bc.contextPolicy == nil {
+		return nil, nil
+	}
+	return bc.contextPolicy.SummaryPrefix(ctx, conversationID)
 }
 
 func (s inputSession) persistedContent() string {
@@ -297,15 +318,17 @@ func (bc *BotController) executeConversation(c telebot.Context, session inputSes
 	return finalAnswer, err
 }
 
-func (bc *BotController) persistAssistantAnswer(session inputSession, finalAnswer string) {
-	_ = bc.memory.AddMessage(session.ctx, session.convID, "assistant", finalAnswer)
-	_ = bc.memory.AddArchiveEntry(session.ctx, memory.ArchiveEntry{
-		ConversationID: session.convID,
-		SessionID:      session.convID,
-		Role:           "assistant",
-		Content:        finalAnswer,
-		MessageType:    "chat",
-	})
+func (bc *BotController) persistAssistantAnswer(session inputSession, finalAnswer string) error {
+	return errors.Join(
+		bc.memory.AddMessage(session.ctx, session.convID, "assistant", finalAnswer),
+		bc.memory.AddArchiveEntry(session.ctx, memory.ArchiveEntry{
+			ConversationID: session.convID,
+			SessionID:      session.convID,
+			Role:           "assistant",
+			Content:        finalAnswer,
+			MessageType:    "chat",
+		}),
+	)
 }
 
 func (bc *BotController) deliverFinalAnswer(c telebot.Context, finalAnswer string, requiresAudio bool) error {

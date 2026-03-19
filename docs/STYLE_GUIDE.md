@@ -58,6 +58,7 @@ Rules:
 - do not instantiate network clients or heavy dependencies deep inside handlers
 - keep interfaces small and behavior-oriented
 - avoid interface extraction with only one speculative implementation
+- when provider or model metadata is needed, consume the canonical helpers in `pkg/llm` instead of re-declaring local switch tables
 
 ### Functions And Files
 

@@ -180,6 +180,18 @@ Important rule:
 
 Tool schemas belong here, not in the composition root.
 
+Provider and model metadata should have a single source of truth in `pkg/llm`.
+
+That includes:
+
+- provider identity and labels
+- default model selection
+- model catalog fallbacks
+- model normalization rules
+- context window lookup tables
+
+Interface layers and wiring may consume this metadata, but should not redefine it locally.
+
 ## Core Runtime Model
 
 ### ReAct Execution
@@ -229,6 +241,7 @@ Conversation continuity follows a simple local context-budget policy:
 
 This is intentionally not a provider-driven session-introspection subsystem.
 The runtime keeps continuity by deterministic local policy over SQLite-backed memory.
+The source of truth for this policy lives in `internal/memory`; interface layers may trigger it, but should not own the rule.
 
 ### Local Execution
 

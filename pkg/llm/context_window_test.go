@@ -14,6 +14,9 @@ func TestContextWindow(t *testing.T) {
 	if got := ContextWindow("openrouter", "anthropic/claude-sonnet-4.6"); got != 200000 {
 		t.Fatalf("ContextWindow(openrouter, anthropic/claude-sonnet-4.6) = %d", got)
 	}
+	if got := ContextWindow("kilo", "z-ai/glm-5-turbo"); got != 128000 {
+		t.Fatalf("ContextWindow(kilo, z-ai/glm-5-turbo) = %d", got)
+	}
 	if got := ContextWindow("unknown", "mystery"); got != 0 {
 		t.Fatalf("ContextWindow(unknown, mystery) = %d", got)
 	}

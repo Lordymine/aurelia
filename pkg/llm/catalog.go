@@ -63,6 +63,8 @@ func ListModels(ctx context.Context, provider string, creds ModelCatalogCredenti
 	_ = ctx
 	_ = creds
 
+	provider = NormalizeProvider(provider)
+
 	switch provider {
 	case "anthropic":
 		if creds.AnthropicAPIKey != "" {
@@ -94,7 +96,7 @@ func ListModels(ctx context.Context, provider string, creds ModelCatalogCredenti
 			return listOpenAIModels(ctx, creds.OpenAIAPIKey, openAIModelsURL, http.DefaultClient)
 		}
 		return fallbackModels("openai"), nil
-	case "", "kimi":
+	case "kimi":
 		return fallbackModels("kimi"), nil
 	default:
 		return nil, fmt.Errorf("unsupported llm provider %q", provider)
@@ -103,7 +105,7 @@ func ListModels(ctx context.Context, provider string, creds ModelCatalogCredenti
 
 // FallbackModels returns curated default models when discovery is unavailable.
 func FallbackModels(provider string) []ModelOption {
-	return fallbackModels(provider)
+	return fallbackModels(NormalizeProvider(provider))
 }
 
 func fallbackModels(provider string) []ModelOption {
@@ -125,8 +127,8 @@ func fallbackModels(provider string) []ModelOption {
 			{ID: "openai/gpt-5.4", Name: "OpenAI: GPT-5.4", SupportsImageInput: true},
 			{ID: "anthropic/claude-sonnet-4.6", Name: "Anthropic: Claude Sonnet 4.6", SupportsImageInput: true},
 			{ID: "google/gemini-3.1-pro-preview", Name: "Google: Gemini 3.1 Pro Preview", SupportsImageInput: true},
-			{ID: "z-ai/glm-4.6v", Name: "Z.ai: GLM 4.6V", SupportsImageInput: true},
-			{ID: "z-ai/glm-5-turbo", Name: "Z.ai: GLM 5 Turbo"},
+			{ID: "zai/glm-4.6v", Name: "Z.ai: GLM 4.6V", SupportsImageInput: true},
+			{ID: "zai/glm-5-turbo", Name: "Z.ai: GLM 5 Turbo"},
 		}
 	case "openrouter":
 		return []ModelOption{
@@ -160,7 +162,7 @@ func fallbackModels(provider string) []ModelOption {
 			{ID: "gpt-5.2-codex", Name: "GPT-5.2-Codex"},
 			{ID: "o4-mini", Name: "o4-mini", SupportsImageInput: true, SupportsTools: true},
 		}
-	case "", "kimi":
+	case "kimi":
 		return []ModelOption{
 			{ID: "kimi-k2-thinking", Name: "Kimi K2 Thinking"},
 			{ID: "kimi-k2-thinking-turbo", Name: "Kimi K2 Thinking Turbo"},

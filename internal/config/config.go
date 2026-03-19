@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/kocar/aurelia/internal/runtime"
+	"github.com/kocar/aurelia/pkg/llm"
 )
 
 const (
@@ -83,6 +84,48 @@ type EditableConfig struct {
 	MemoryWindowSize       int
 }
 
+func (c EditableConfig) LLMAPIKey(provider string) string {
+	switch llm.NormalizeProvider(provider) {
+	case "anthropic":
+		return c.AnthropicAPIKey
+	case "google":
+		return c.GoogleAPIKey
+	case "kilo":
+		return c.KiloAPIKey
+	case "openrouter":
+		return c.OpenRouterAPIKey
+	case "zai":
+		return c.ZAIAPIKey
+	case "alibaba":
+		return c.AlibabaAPIKey
+	case "openai":
+		return c.OpenAIAPIKey
+	default:
+		return c.KimiAPIKey
+	}
+}
+
+func (c *EditableConfig) SetLLMAPIKey(provider, value string) {
+	switch llm.NormalizeProvider(provider) {
+	case "anthropic":
+		c.AnthropicAPIKey = value
+	case "google":
+		c.GoogleAPIKey = value
+	case "kilo":
+		c.KiloAPIKey = value
+	case "openrouter":
+		c.OpenRouterAPIKey = value
+	case "zai":
+		c.ZAIAPIKey = value
+	case "alibaba":
+		c.AlibabaAPIKey = value
+	case "openai":
+		c.OpenAIAPIKey = value
+	default:
+		c.KimiAPIKey = value
+	}
+}
+
 // Load reads the instance-local JSON config, creates it with defaults when
 // missing, and returns the normalized runtime config.
 func Load(r *runtime.PathResolver) (*AppConfig, error) {
@@ -124,7 +167,7 @@ func Load(r *runtime.PathResolver) (*AppConfig, error) {
 func defaultFileConfig(r *runtime.PathResolver) fileConfig {
 	return fileConfig{
 		LLMProvider:            defaultLLMProvider,
-		LLMModel:               defaultLLMModelForProvider(defaultLLMProvider),
+		LLMModel:               llm.DefaultModelForProvider(defaultLLMProvider),
 		OpenAIAuthMode:         "api_key",
 		STTProvider:            defaultSTTProvider,
 		TelegramAllowedUserIDs: []int64{},
@@ -139,7 +182,7 @@ func defaultFileConfig(r *runtime.PathResolver) fileConfig {
 func DefaultEditableConfig() EditableConfig {
 	return EditableConfig{
 		LLMProvider:            defaultLLMProvider,
-		LLMModel:               defaultLLMModelForProvider(defaultLLMProvider),
+		LLMModel:               llm.DefaultModelForProvider(defaultLLMProvider),
 		OpenAIAuthMode:         "api_key",
 		STTProvider:            defaultSTTProvider,
 		TelegramAllowedUserIDs: []int64{},
@@ -213,7 +256,7 @@ func normalizeFileConfig(cfg fileConfig, r *runtime.PathResolver) fileConfig {
 		cfg.LLMProvider = defaults.LLMProvider
 	}
 	if cfg.LLMModel == "" {
-		cfg.LLMModel = defaultLLMModelForProvider(cfg.LLMProvider)
+		cfg.LLMModel = llm.DefaultModelForProvider(cfg.LLMProvider)
 	}
 	if cfg.OpenAIAuthMode == "" {
 		cfg.OpenAIAuthMode = defaults.OpenAIAuthMode
@@ -310,22 +353,5 @@ func sameFileConfig(a, b fileConfig) bool {
 }
 
 func defaultLLMModelForProvider(provider string) string {
-	switch provider {
-	case "anthropic":
-		return "claude-sonnet-4-6"
-	case "google":
-		return "gemini-2.5-pro"
-	case "kilo":
-		return "gpt-5.4"
-	case "openrouter":
-		return "openrouter/auto"
-	case "zai":
-		return "glm-5"
-	case "alibaba":
-		return "qwen3-coder-plus"
-	case "openai":
-		return "gpt-5.4"
-	default:
-		return defaultLLMModel
-	}
+	return llm.DefaultModelForProvider(provider)
 }

@@ -192,32 +192,19 @@ func bootstrapApp() (*app, error) {
 
 func buildLLMProvider(cfg *config.AppConfig, resolver *runtime.PathResolver) (closableLLMProvider, error) {
 	_ = resolver
-	switch cfg.LLMProvider {
-	case "anthropic":
-		return llm.NewAnthropicProvider(cfg.AnthropicAPIKey, cfg.LLMModel), nil
-	case "google":
-		return llm.NewGeminiProvider(context.Background(), cfg.GoogleAPIKey, cfg.LLMModel)
-	case "kilo":
-		return llm.NewKiloProvider(cfg.KiloAPIKey, cfg.LLMModel), nil
-	case "openrouter":
-		return llm.NewOpenRouterProvider(cfg.OpenRouterAPIKey, cfg.LLMModel), nil
-	case "zai":
-		return llm.NewZAIProvider(cfg.ZAIAPIKey, cfg.LLMModel), nil
-	case "alibaba":
-		return llm.NewAlibabaProvider(cfg.AlibabaAPIKey, cfg.LLMModel), nil
-	case "openai":
-		if cfg.OpenAIAuthMode == "codex" {
-			if err := llm.EnsureCodexCLIAvailable(); err != nil {
-				return nil, err
-			}
-			return llm.NewCodexCLIProvider(cfg.LLMModel)
-		}
-		return llm.NewOpenAIProvider(cfg.OpenAIAPIKey, cfg.LLMModel), nil
-	case "", "kimi":
-		return llm.NewKimiProvider(cfg.KimiAPIKey, cfg.LLMModel), nil
-	default:
-		return nil, fmt.Errorf("unsupported llm provider %q", cfg.LLMProvider)
-	}
+	return llm.BuildProvider(llm.RuntimeConfig{
+		Provider:         cfg.LLMProvider,
+		Model:            cfg.LLMModel,
+		AnthropicAPIKey:  cfg.AnthropicAPIKey,
+		GoogleAPIKey:     cfg.GoogleAPIKey,
+		KiloAPIKey:       cfg.KiloAPIKey,
+		KimiAPIKey:       cfg.KimiAPIKey,
+		OpenRouterAPIKey: cfg.OpenRouterAPIKey,
+		ZAIAPIKey:        cfg.ZAIAPIKey,
+		AlibabaAPIKey:    cfg.AlibabaAPIKey,
+		OpenAIAPIKey:     cfg.OpenAIAPIKey,
+		OpenAIAuthMode:   cfg.OpenAIAuthMode,
+	})
 }
 
 func buildTranscriber(cfg *config.AppConfig) (stt.Transcriber, error) {

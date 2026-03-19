@@ -12,13 +12,13 @@ import (
 func TestDecideContextAction(t *testing.T) {
 	t.Parallel()
 
-	if got := decideContextAction(1000, 200); got != contextActionNone {
+	if got := memory.DecideContextAction(1000, 200); got != memory.ContextActionNone {
 		t.Fatalf("expected none, got %s", got)
 	}
-	if got := decideContextAction(1000, 750); got != contextActionSummarize {
+	if got := memory.DecideContextAction(1000, 750); got != memory.ContextActionSummarize {
 		t.Fatalf("expected summarize, got %s", got)
 	}
-	if got := decideContextAction(1000, 900); got != contextActionRotate {
+	if got := memory.DecideContextAction(1000, 900); got != memory.ContextActionRotate {
 		t.Fatalf("expected rotate, got %s", got)
 	}
 }
@@ -49,7 +49,8 @@ func TestManageConversationContext_SummarizesAndTrims(t *testing.T) {
 			LLMModel:         "moonshot-v1-8k",
 			MemoryWindowSize: 20,
 		},
-		memory: mem,
+		memory:        mem,
+		contextPolicy: memory.NewContextPolicy(mem),
 	}
 
 	if err := bc.manageConversationContext(ctx, "42"); err != nil {
@@ -64,7 +65,7 @@ func TestManageConversationContext_SummarizesAndTrims(t *testing.T) {
 		t.Fatalf("expected 10 messages after summarize trim, got %d", len(messages))
 	}
 
-	summary, ok, err := mem.GetLatestNote(ctx, "42", contextSummaryTopic, contextSummaryKind)
+	summary, ok, err := mem.GetLatestNote(ctx, "42", memory.ContextSummaryTopic, memory.ContextSummaryKind)
 	if err != nil {
 		t.Fatalf("GetLatestNote() error = %v", err)
 	}
@@ -83,16 +84,19 @@ func TestSummaryPrefixUsesLatestContextSummary(t *testing.T) {
 	ctx := context.Background()
 	if err := mem.AddNote(ctx, memory.Note{
 		ConversationID: "42",
-		Topic:          contextSummaryTopic,
-		Kind:           contextSummaryKind,
+		Topic:          memory.ContextSummaryTopic,
+		Kind:           memory.ContextSummaryKind,
 		Summary:        "decisoes e contexto anteriores",
 		Source:         "test",
 	}); err != nil {
 		t.Fatalf("AddNote() error = %v", err)
 	}
 
-	bc := &BotController{memory: mem}
-	prefix := bc.summaryPrefix(ctx, "42")
+	bc := &BotController{memory: mem, contextPolicy: memory.NewContextPolicy(mem)}
+	prefix, err := bc.summaryPrefix(ctx, "42")
+	if err != nil {
+		t.Fatalf("summaryPrefix() error = %v", err)
+	}
 	if prefix == nil {
 		t.Fatal("expected summary prefix")
 	}

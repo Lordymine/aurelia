@@ -22,6 +22,7 @@ type BotController struct {
 	bot              *telebot.Bot
 	config           *config.AppConfig
 	memory           *memory.MemoryManager
+	contextPolicy    *memory.ContextPolicy
 	router           *skill.Router
 	executor         *skill.Executor
 	loader           *skill.Loader
@@ -80,6 +81,7 @@ func NewBotController(
 		bot:              b,
 		config:           cfg,
 		memory:           mem,
+		contextPolicy:    memory.NewContextPolicy(mem),
 		router:           r,
 		executor:         e,
 		loader:           l,
