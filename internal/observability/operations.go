@@ -26,10 +26,26 @@ type Operation struct {
 	CreatedAt  time.Time
 }
 
+type Artifact struct {
+	ID        int64
+	RunID     string
+	TeamID    string
+	TaskID    string
+	AgentName string
+	Component string
+	Operation string
+	Content   string
+	CreatedAt time.Time
+}
+
 type Recorder interface {
 	RecordOperation(ctx context.Context, operation Operation) error
 	ListRecentOperations(ctx context.Context, limit int) ([]Operation, error)
 	ListFailedOperations(ctx context.Context, limit int) ([]Operation, error)
+}
+
+type ArtifactRecorder interface {
+	RecordArtifact(ctx context.Context, artifact Artifact) (int64, error)
 }
 
 type SQLiteStore struct {
@@ -98,6 +114,41 @@ func (s *SQLiteStore) ListRecentOperations(ctx context.Context, limit int) ([]Op
 
 func (s *SQLiteStore) ListFailedOperations(ctx context.Context, limit int) ([]Operation, error) {
 	return s.listOperations(ctx, limit, true)
+}
+
+func (s *SQLiteStore) RecordArtifact(ctx context.Context, artifact Artifact) (int64, error) {
+	if s == nil || s.db == nil {
+		return 0, nil
+	}
+
+	artifact.Component = strings.TrimSpace(artifact.Component)
+	artifact.Operation = strings.TrimSpace(artifact.Operation)
+	if artifact.Component == "" || artifact.Operation == "" {
+		return 0, fmt.Errorf("component and operation are required")
+	}
+
+	result, err := s.db.ExecContext(ctx, `
+		INSERT INTO operational_artifacts (
+			run_id, team_id, task_id, agent_name, component, operation, content
+		) VALUES (?, ?, ?, ?, ?, ?, ?)
+	`,
+		artifact.RunID,
+		artifact.TeamID,
+		artifact.TaskID,
+		artifact.AgentName,
+		artifact.Component,
+		artifact.Operation,
+		artifact.Content,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("record operational artifact: %w", err)
+	}
+
+	id, err := result.LastInsertId()
+	if err != nil {
+		return 0, fmt.Errorf("artifact last insert id: %w", err)
+	}
+	return id, nil
 }
 
 func (s *SQLiteStore) listOperations(ctx context.Context, limit int, failuresOnly bool) ([]Operation, error) {
@@ -214,6 +265,19 @@ func initialize(db *sql.DB) error {
 			ON operational_events (created_at, id);
 		CREATE INDEX IF NOT EXISTS idx_operational_events_status
 			ON operational_events (status, created_at, id);
+		CREATE TABLE IF NOT EXISTS operational_artifacts (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			run_id TEXT NOT NULL DEFAULT '',
+			team_id TEXT NOT NULL DEFAULT '',
+			task_id TEXT NOT NULL DEFAULT '',
+			agent_name TEXT NOT NULL DEFAULT '',
+			component TEXT NOT NULL,
+			operation TEXT NOT NULL,
+			content TEXT NOT NULL DEFAULT '',
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		);
+		CREATE INDEX IF NOT EXISTS idx_operational_artifacts_created_at
+			ON operational_artifacts (created_at, id);
 	`)
 	if err != nil {
 		return fmt.Errorf("initialize observability schema: %w", err)

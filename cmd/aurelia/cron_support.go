@@ -25,7 +25,5 @@ func loadCronPromptConfig(canonicalPromptLoader interface {
 		}
 		log.Printf("Warning: failed to load canonical prompt for cron runtime, using default prompt: %v", err)
 	}
-	return "Voce e o agente pessoal Aurelia. Execute a tarefa agendada com precisao e retorne um resumo objetivo do resultado.", []string{"web_search", "read_file", "write_file", "list_dir", "run_command"}
+	return "Voce e o agente pessoal Aurelia. Execute a tarefa agendada com precisao e retorne um resumo objetivo do resultado.", nil
 }
-
-

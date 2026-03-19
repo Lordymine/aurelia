@@ -74,9 +74,17 @@ func listAllTools(ctx context.Context, session *mcpsdk.ClientSession) ([]*mcpsdk
 func buildToolDescription(serverName, remoteName, rawDescription string) string {
 	description := strings.TrimSpace(rawDescription)
 	if description == "" {
-		return fmt.Sprintf("MCP tool %s from server %s", remoteName, serverName)
+		return fmt.Sprintf("MCP tool %s.", remoteName)
 	}
-	return fmt.Sprintf("%s (MCP server: %s, remote tool: %s)", description, serverName, remoteName)
+	description = strings.Join(strings.Fields(description), " ")
+	if idx := strings.IndexAny(description, ".;:\n"); idx > 0 {
+		description = strings.TrimSpace(description[:idx+1])
+	}
+	runes := []rune(description)
+	if len(runes) > 140 {
+		description = strings.TrimSpace(string(runes[:140])) + "..."
+	}
+	return description
 }
 
 func timeoutFromMS(ms int, fallback time.Duration) time.Duration {
@@ -147,5 +155,3 @@ func normalizeSchema(inputSchema any) map[string]interface{} {
 
 	return m
 }
-
-

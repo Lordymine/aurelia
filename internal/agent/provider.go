@@ -89,9 +89,10 @@ func (r *ToolRegistry) GetDefinitions() []Tool {
 }
 
 // FilterDefinitions returns the tool definitions allowed for this execution.
-// An empty allowed list means "all tools registered in the runtime".
+// A nil allowed list means "all tools registered in the runtime".
+// A non-nil empty allowed list means "no tools for this execution".
 func (r *ToolRegistry) FilterDefinitions(allowed []string) []Tool {
-	if len(allowed) == 0 {
+	if allowed == nil {
 		return append([]Tool(nil), r.defs...)
 	}
 

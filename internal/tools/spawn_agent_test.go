@@ -125,7 +125,7 @@ func TestSpawnAgentTool_Execute_AppliesResearcherDefaultToolProfile(t *testing.T
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	want := []string{"web_search", "read_file", "send_team_message", "read_team_inbox"}
+	want := []string{"read_file", "read_team_inbox", "send_team_message", "web_search"}
 	if len(mockSpawner.CapturedTools) != len(want) {
 		t.Fatalf("unexpected allowed tools count: got %#v want %#v", mockSpawner.CapturedTools, want)
 	}
@@ -151,7 +151,7 @@ func TestSpawnAgentTool_Execute_AppliesImplementerDefaultToolProfile(t *testing.
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	want := []string{"read_file", "write_file", "run_command", "send_team_message", "read_team_inbox"}
+	want := []string{"read_file", "read_team_inbox", "run_command", "send_team_message", "write_file"}
 	if len(mockSpawner.CapturedTools) != len(want) {
 		t.Fatalf("unexpected allowed tools count: got %#v want %#v", mockSpawner.CapturedTools, want)
 	}
@@ -177,7 +177,7 @@ func TestSpawnAgentTool_Execute_AppliesReviewerDefaultToolProfile(t *testing.T) 
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	want := []string{"read_file", "run_command", "send_team_message", "read_team_inbox"}
+	want := []string{"read_file", "read_team_inbox", "run_command", "send_team_message"}
 	if len(mockSpawner.CapturedTools) != len(want) {
 		t.Fatalf("unexpected allowed tools count: got %#v want %#v", mockSpawner.CapturedTools, want)
 	}
@@ -187,5 +187,3 @@ func TestSpawnAgentTool_Execute_AppliesReviewerDefaultToolProfile(t *testing.T) 
 		}
 	}
 }
-
-

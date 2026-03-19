@@ -52,6 +52,26 @@ func TestSQLiteStore_RecordAndListOperations(t *testing.T) {
 	}
 }
 
+func TestSQLiteStore_RecordArtifact(t *testing.T) {
+	t.Parallel()
+
+	store := setupStore(t)
+	ctx := context.Background()
+
+	id, err := store.RecordArtifact(ctx, Artifact{
+		RunID:     "run-3",
+		Component: "agent.tool",
+		Operation: "read_file",
+		Content:   "full raw output",
+	})
+	if err != nil {
+		t.Fatalf("RecordArtifact() error = %v", err)
+	}
+	if id == 0 {
+		t.Fatalf("expected non-zero artifact id")
+	}
+}
+
 func setupStore(t *testing.T) *SQLiteStore {
 	t.Helper()
 

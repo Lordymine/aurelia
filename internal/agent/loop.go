@@ -48,16 +48,31 @@ func (l *Loop) Run(ctx context.Context, systemPrompt string, history []Message, 
 	copy(currentHistory, history)
 
 	tools := l.registry.FilterDefinitions(allowedTools)
+	tools = CompactToolsForPrompt(tools)
 	systemPrompt = augmentSystemPromptWithToolGuidance(systemPrompt, tools)
 	systemPrompt = augmentSystemPromptWithRuntimeCapabilities(systemPrompt, tools)
+	toolMetrics := MeasureToolPayload(tools)
 
 	var toolNames []string
 	for _, t := range tools {
 		toolNames = append(toolNames, t.Name)
 	}
 	observability.Log("info", "agent.loop", "starting loop run", observability.MergeFields(ContextFields(ctx), map[string]string{
-		"tools": strings.Join(toolNames, ","),
+		"tools":              strings.Join(toolNames, ","),
+		"tool_count":         fmt.Sprintf("%d", toolMetrics.Count),
+		"tool_payload_bytes": fmt.Sprintf("%d", toolMetrics.SerializedBytes),
 	}))
+	observability.Observe(ctx, l.observer, observability.Operation{
+		RunID:      ContextFields(ctx)["run_id"],
+		TeamID:     ContextFields(ctx)["team_id"],
+		TaskID:     ContextFields(ctx)["task_id"],
+		AgentName:  ContextFields(ctx)["agent"],
+		Component:  "agent.loop",
+		Operation:  "tool_context",
+		Status:     "ok",
+		DurationMS: 0,
+		Summary:    fmt.Sprintf("tool_count=%d tool_payload_bytes=%d", toolMetrics.Count, toolMetrics.SerializedBytes),
+	})
 
 	iterations := 0
 	for l.maxIterations < 0 || iterations < l.maxIterations {
@@ -157,6 +172,14 @@ func (l *Loop) Run(ctx context.Context, systemPrompt string, history []Message, 
 				})
 				resultStr = string(errorPayload)
 			} else {
+				compacted := CompactToolOutputForHistory(ctx, l.observer, call.Name, resultStr)
+				summary := fmt.Sprintf("raw_chars=%d compacted_chars=%d", compacted.RawChars, compacted.CompactedChars)
+				if compacted.Oversized {
+					summary += fmt.Sprintf(" oversized=true threshold_chars=%d", OversizedToolOutputThresholdChars)
+				}
+				if compacted.ArtifactID > 0 {
+					summary += fmt.Sprintf(" artifact_id=%d", compacted.ArtifactID)
+				}
 				observability.Observe(ctx, l.observer, observability.Operation{
 					RunID:      ContextFields(ctx)["run_id"],
 					TeamID:     ContextFields(ctx)["team_id"],
@@ -166,8 +189,9 @@ func (l *Loop) Run(ctx context.Context, systemPrompt string, history []Message, 
 					Operation:  call.Name,
 					Status:     "ok",
 					DurationMS: toolDuration.Milliseconds(),
-					Summary:    fmt.Sprintf("result_chars=%d", len(resultStr)),
+					Summary:    summary,
 				})
+				resultStr = compacted.Content
 			}
 
 			currentHistory = append(currentHistory, Message{

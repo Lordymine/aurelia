@@ -171,5 +171,7 @@ For this project:
 - do not solve continuity problems by inflating prompt size alone
 - do not replace deterministic memory with vector-first behavior as a default
 - do not move domain logic into Telegram handlers
+- do not rebuild tool selection logic in interface layers; use canonical runtime helpers and expose the minimum necessary tool surface
+- do not append oversized raw tool output to active history when a compact deterministic summary plus local artifact is enough
 - do not bypass the team model by letting workers speak directly to the user
 - do not introduce architectural sprawl without a documented reason

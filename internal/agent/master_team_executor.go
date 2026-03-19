@@ -39,10 +39,7 @@ Regras:
 
 	allowedTools := append([]string(nil), task.AllowedTools...)
 	if len(allowedTools) == 0 {
-		allowedTools = make([]string, 0, len(e.registry.GetDefinitions()))
-		for _, tool := range e.registry.GetDefinitions() {
-			allowedTools = append(allowedTools, tool.Name)
-		}
+		allowedTools = ResolveAllowedToolsForWorker(e.agentName, e.roleDesc, task.Prompt, nil)
 	}
 
 	_, finalAnswer, err := loop.Run(ctx, systemPrompt, nil, allowedTools)
@@ -55,5 +52,3 @@ func displayTaskWorkdir(workdir string) string {
 	}
 	return workdir
 }
-
-

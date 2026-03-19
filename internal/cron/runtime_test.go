@@ -75,6 +75,35 @@ func TestCronRuntime_ExecuteJob_RunsAgentWithPromptAndContext(t *testing.T) {
 	}
 }
 
+func TestCronRuntime_ExecuteJob_ResolvesAllowedToolsFromPrompt(t *testing.T) {
+	t.Parallel()
+
+	executor := &fakeCronAgentExecutor{finalAnswer: "ok"}
+	runtime := NewAgentCronRuntime(executor, "base system prompt", nil)
+	job := CronJob{
+		ID:           "job-heuristic",
+		OwnerUserID:  "user-2",
+		TargetChatID: 42,
+		ScheduleType: "once",
+		Prompt:       "rode os testes do projeto",
+		Active:       true,
+	}
+
+	if _, err := runtime.ExecuteJob(context.Background(), job); err != nil {
+		t.Fatalf("ExecuteJob() error = %v", err)
+	}
+
+	want := []string{"list_dir", "read_file", "run_command", "write_file"}
+	if len(executor.lastAllowedTools) != len(want) {
+		t.Fatalf("expected %v, got %#v", want, executor.lastAllowedTools)
+	}
+	for i := range want {
+		if executor.lastAllowedTools[i] != want[i] {
+			t.Fatalf("expected %v, got %#v", want, executor.lastAllowedTools)
+		}
+	}
+}
+
 func TestCronRuntime_ExecuteJob_PropagatesExecutorError(t *testing.T) {
 	t.Parallel()
 
@@ -142,5 +171,3 @@ func TestCronRuntime_ExecuteJob_RebuildsPromptPerExecution(t *testing.T) {
 		t.Fatalf("expected prompt builder to run twice, got %d", buildCount)
 	}
 }
-
-

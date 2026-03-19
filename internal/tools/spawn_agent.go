@@ -3,7 +3,6 @@ package tools
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/kocar/aurelia/internal/agent"
 )
@@ -52,7 +51,7 @@ func (t *SpawnAgentTool) Execute(ctx context.Context, args map[string]interface{
 	workdir := optionalStringArg(args, "workdir")
 	allowedTools := readStringArrayArg(args["allowed_tools"])
 	if len(allowedTools) == 0 {
-		allowedTools = inferAllowedToolsProfile(agentName, roleDesc, taskPrompt)
+		allowedTools = agent.ResolveAllowedToolsForWorker(agentName, roleDesc, taskPrompt, nil)
 	}
 
 	if t.Spawner == nil {
@@ -74,38 +73,3 @@ func (t *SpawnAgentTool) Execute(ctx context.Context, args map[string]interface{
 
 	return fmt.Sprintf("Acionei o especialista `%s` para cuidar de: %s.\nTask aberta: `%s`.\nVou acompanhar o progresso do time e te atualizar quando houver avancos relevantes.", agentName, taskPrompt, taskID), nil
 }
-
-func inferAllowedToolsProfile(agentName, roleDescription, taskPrompt string) []string {
-	text := strings.ToLower(strings.Join([]string{agentName, roleDescription, taskPrompt}, "\n"))
-
-	mailbox := []string{"send_team_message", "read_team_inbox"}
-
-	if matchesAny(text, "research", "pesquisa", "researcher", "buscar", "busca", "docs atuais", "documentacao", "internet", "web") {
-		return append([]string{"web_search", "read_file"}, mailbox...)
-	}
-
-	if matchesAny(text, "implement", "executor", "builder", "codar", "codigo", "feature", "fix", "corrigir", "refactor", "refatorar") {
-		return append([]string{"read_file", "write_file", "run_command"}, mailbox...)
-	}
-
-	if matchesAny(text, "review", "revisor", "reviewer", "validar", "verification", "verificar", "auditar", "auditor", "checker", "qa", "teste", "test") {
-		return append([]string{"read_file", "run_command"}, mailbox...)
-	}
-
-	if matchesAny(text, "plan", "planner", "roadmap", "arquitet", "architecture", "requirements", "requisito", "design") {
-		return append([]string{"read_file", "write_file"}, mailbox...)
-	}
-
-	return append([]string{"read_file", "write_file", "run_command"}, mailbox...)
-}
-
-func matchesAny(text string, patterns ...string) bool {
-	for _, pattern := range patterns {
-		if strings.Contains(text, pattern) {
-			return true
-		}
-	}
-	return false
-}
-
-

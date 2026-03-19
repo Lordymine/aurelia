@@ -603,7 +603,7 @@ func TestMasterTeamService_Spawn_PersistsAndAppliesAllowedToolsForWorker(t *test
 	}
 
 	gotTools := llm.CapturedTools()
-	if len(gotTools) != 2 || gotTools[0] != "web_search" || gotTools[1] != "read_file" {
+	if len(gotTools) != 2 || gotTools[0] != "read_file" || gotTools[1] != "web_search" {
 		t.Fatalf("unexpected worker tool list: %#v", gotTools)
 	}
 }

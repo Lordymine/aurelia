@@ -192,6 +192,12 @@ That includes:
 
 Interface layers and wiring may consume this metadata, but should not redefine it locally.
 
+Tool exposure should follow the same rule.
+
+- canonical tool profiles and intent-based tool selection belong in the runtime/domain layer
+- interface layers may trigger execution with an allowed-tool set, but should not own the selection policy
+- the default path should expose the minimum necessary tool surface instead of the full registry
+
 ## Core Runtime Model
 
 ### ReAct Execution
@@ -206,6 +212,12 @@ The runtime injects:
 - runtime capabilities
 
 The agent must reason from real capabilities, not assumed capabilities.
+
+For token efficiency and provider-side cache friendliness:
+
+- tool exposure should be minimal for the current execution
+- the serialized tool block should be compact and stable for equivalent executions
+- oversized tool outputs should be compacted out of active history and preserved only through local operational artifacts when needed
 
 ### Agent Teams
 

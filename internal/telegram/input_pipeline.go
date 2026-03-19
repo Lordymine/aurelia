@@ -299,15 +299,15 @@ func (s inputSession) persistedContent() string {
 
 func (bc *BotController) resolveExecutionPrompt(session inputSession) (string, []string) {
 	if bc.canonical == nil {
-		return defaultSystemPrompt, nil
+		return defaultSystemPrompt, agent.ResolveAllowedToolsForQuery(session.text, nil)
 	}
 
 	prompt, tools, err := bc.canonical.BuildPromptForQuery(session.ctx, session.senderID, session.convID, session.text)
 	if err != nil {
 		log.Printf("Persona files not found or invalid. Using default prompt. Error: %v\n", err)
-		return defaultSystemPrompt, nil
+		return defaultSystemPrompt, agent.ResolveAllowedToolsForQuery(session.text, nil)
 	}
-	return prompt, tools
+	return prompt, agent.ResolveAllowedToolsForQuery(session.text, tools)
 }
 
 func (bc *BotController) executeConversation(c telebot.Context, session inputSession, activeSkill *skill.Skill, history []agent.Message, systemPrompt string, allowedTools []string) (string, error) {
