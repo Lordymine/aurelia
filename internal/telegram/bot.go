@@ -21,6 +21,7 @@ import (
 type BotController struct {
 	bot              *telebot.Bot
 	config           *config.AppConfig
+	tools            *agent.ToolRegistry
 	memory           *memory.MemoryManager
 	contextPolicy    *memory.ContextPolicy
 	router           *skill.Router
@@ -57,6 +58,7 @@ type recentMedia struct {
 // NewBotController builds the Telegram controller.
 func NewBotController(
 	cfg *config.AppConfig,
+	registry *agent.ToolRegistry,
 	mem *memory.MemoryManager,
 	r *skill.Router,
 	e *skill.Executor,
@@ -80,6 +82,7 @@ func NewBotController(
 	bc := &BotController{
 		bot:              b,
 		config:           cfg,
+		tools:            registry,
 		memory:           mem,
 		contextPolicy:    memory.NewContextPolicy(mem),
 		router:           r,

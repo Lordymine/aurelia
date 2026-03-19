@@ -134,6 +134,7 @@ func bootstrapApp() (*app, error) {
 
 	bot, err := telegram.NewBotController(
 		cfg,
+		registry,
 		mem,
 		skillRouter,
 		skillExecutor,

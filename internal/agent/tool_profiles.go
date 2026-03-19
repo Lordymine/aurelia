@@ -72,6 +72,20 @@ func ResolveAllowedToolsForQuery(query string, explicit []string) []string {
 	return allowed
 }
 
+func ResolveAllowedToolsForQueryWithDefinitions(query string, explicit []string, defs []Tool) []string {
+	allowed := ResolveAllowedToolsForQuery(query, explicit)
+	selected := make(map[string]bool, len(allowed))
+	for _, tool := range allowed {
+		selected[tool] = true
+	}
+
+	for _, tool := range resolveExplicitMCPTools(query, defs) {
+		selected[tool] = true
+	}
+
+	return sortedKeys(selected)
+}
+
 func ResolveAllowedToolsForWorker(agentName, roleDescription, taskPrompt string, explicit []string) []string {
 	if len(explicit) != 0 {
 		selected := make(map[string]bool, len(explicit)+2)
@@ -187,4 +201,56 @@ func sortedKeys(values map[string]bool) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+func resolveExplicitMCPTools(query string, defs []Tool) []string {
+	query = normalizeIntentQuery(query)
+	if query == "" || len(defs) == 0 {
+		return nil
+	}
+
+	selected := make(map[string]bool)
+	for _, def := range defs {
+		if !strings.HasPrefix(def.Name, "mcp_") {
+			continue
+		}
+
+		if queryMentionsMCPTool(query, def.Name) {
+			selected[def.Name] = true
+		}
+	}
+
+	return sortedKeys(selected)
+}
+
+func queryMentionsMCPTool(query, toolName string) bool {
+	normalizedTool := normalizeIntentQuery(strings.ReplaceAll(toolName, "_", " "))
+	if normalizedTool != "" && strings.Contains(query, normalizedTool) {
+		return true
+	}
+
+	serverName, remoteName := splitMCPToolName(toolName)
+	if serverName != "" && strings.Contains(query, normalizeIntentQuery(serverName)) {
+		return true
+	}
+	if remoteName != "" && strings.Contains(query, normalizeIntentQuery(strings.ReplaceAll(remoteName, "_", " "))) {
+		return true
+	}
+
+	return false
+}
+
+func splitMCPToolName(toolName string) (serverName string, remoteName string) {
+	if !strings.HasPrefix(toolName, "mcp_") {
+		return "", ""
+	}
+
+	parts := strings.Split(strings.TrimPrefix(toolName, "mcp_"), "_")
+	if len(parts) < 2 {
+		return "", ""
+	}
+
+	serverName = parts[0]
+	remoteName = strings.Join(parts[1:], "_")
+	return serverName, remoteName
 }

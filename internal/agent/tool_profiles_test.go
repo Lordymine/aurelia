@@ -78,6 +78,37 @@ func TestResolveAllowedToolsForQuery_PreservesExplicitMCPTool(t *testing.T) {
 	}
 }
 
+func TestResolveAllowedToolsForQueryWithDefinitions_ExposesMatchingMCPServer(t *testing.T) {
+	t.Parallel()
+
+	defs := []Tool{
+		{Name: "mcp_context7_resolve_library_id"},
+		{Name: "mcp_context7_get_library_docs"},
+		{Name: "mcp_playwright_browser_navigate"},
+	}
+
+	allowed := ResolveAllowedToolsForQueryWithDefinitions("use o context7 para buscar a doc atual", nil, defs)
+	expected := []string{"mcp_context7_get_library_docs", "mcp_context7_resolve_library_id"}
+	if !reflect.DeepEqual(allowed, expected) {
+		t.Fatalf("expected %v, got %v", expected, allowed)
+	}
+}
+
+func TestResolveAllowedToolsForQueryWithDefinitions_DoesNotExposeUnrelatedMCPTools(t *testing.T) {
+	t.Parallel()
+
+	defs := []Tool{
+		{Name: "mcp_context7_resolve_library_id"},
+		{Name: "mcp_playwright_browser_navigate"},
+	}
+
+	allowed := ResolveAllowedToolsForQueryWithDefinitions("quero usar playwright para abrir a pagina", nil, defs)
+	expected := []string{"mcp_playwright_browser_navigate"}
+	if !reflect.DeepEqual(allowed, expected) {
+		t.Fatalf("expected %v, got %v", expected, allowed)
+	}
+}
+
 func TestResolveAllowedToolsForWorker_DefaultsToMailboxAndExecution(t *testing.T) {
 	t.Parallel()
 
