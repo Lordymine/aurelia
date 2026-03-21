@@ -38,8 +38,9 @@ func NewHugotEmbedder(modelDir string) (*HugotEmbedder, error) {
 	}
 
 	config := hugot.FeatureExtractionConfig{
-		ModelPath: modelPath,
-		Name:      "embeddings",
+		ModelPath:    modelPath,
+		Name:         "embeddings",
+		OnnxFilename: "onnx/model.onnx",
 	}
 
 	pipeline, err := hugot.NewPipeline(session, config)
