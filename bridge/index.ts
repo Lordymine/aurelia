@@ -53,7 +53,12 @@ function buildSDKOptions(opts: RequestOptions | undefined) {
   if (opts.system_prompt) sdkOpts.systemPrompt = opts.system_prompt;
   if (opts.resume) sdkOpts.resume = opts.resume;
   if (opts.max_turns) sdkOpts.maxTurns = opts.max_turns;
-  if (opts.permission_mode) sdkOpts.permissionMode = opts.permission_mode;
+  if (opts.permission_mode) {
+    sdkOpts.permissionMode = opts.permission_mode;
+    if (opts.permission_mode === "bypassPermissions") {
+      sdkOpts.allowDangerouslySkipPermissions = true;
+    }
+  }
   if (opts.mcp_servers) sdkOpts.mcpServers = opts.mcp_servers;
   if (opts.allowed_tools) sdkOpts.allowedTools = opts.allowed_tools;
 
@@ -106,15 +111,34 @@ async function handleQuery(req: Request): Promise<void> {
           break;
         }
 
-        // ── Assistant text ───────────────────────────────────────────
+        // ── Assistant text + tool_use blocks ────────────────────────
         case "assistant": {
           const inner = msg.message as Record<string, unknown> | undefined;
-          if (inner?.content) {
+          if (inner?.content && Array.isArray(inner.content)) {
             const text = extractText(inner.content);
             if (text) {
               emit({ event: "assistant", text });
             }
+            for (const block of inner.content as Record<string, unknown>[]) {
+              if (block.type === "tool_use") {
+                emit({
+                  event: "tool_use",
+                  id: block.id as string,
+                  name: block.name as string,
+                  input: block.input as Record<string, unknown>,
+                });
+              }
+            }
           }
+          break;
+        }
+
+        // ── Tool use summary ─────────────────────────────────────────
+        case "tool_use_summary": {
+          emit({
+            event: "tool_result",
+            content: msg.summary as string,
+          });
           break;
         }
 
@@ -142,27 +166,9 @@ async function handleQuery(req: Request): Promise<void> {
           break;
         }
 
-        // ── Tool use summary ─────────────────────────────────────────
+        // ── All other message types (status, hooks, etc.) ───────────
         default: {
-          // Handle tool-related messages generically
-          if (msgType === "tool_use" || (msg.name && msg.input)) {
-            emit({
-              event: "tool_use",
-              name: msg.name as string,
-              input: msg.input as Record<string, unknown>,
-            });
-          } else if (msgType === "tool_result") {
-            const content =
-              typeof msg.content === "string"
-                ? msg.content
-                : extractText(msg.content);
-            emit({
-              event: "tool_result",
-              content,
-            });
-          }
-          // Other message types (status, etc.) are logged but not emitted
-          // to keep the protocol focused on what Go needs.
+          // Not emitted — keep the protocol focused on what Go needs.
           break;
         }
       }
