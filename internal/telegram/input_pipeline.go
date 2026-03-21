@@ -55,7 +55,7 @@ func (bc *BotController) processInput(c telebot.Context, text string, parts [][]
 			Model:          bc.config.DefaultModel,
 			SystemPrompt:   systemPrompt,
 			MaxTurns:       bc.config.MaxIterations,
-			PermissionMode: "auto",
+			PermissionMode: "bypassPermissions",
 		},
 	}
 
@@ -72,6 +72,11 @@ func (bc *BotController) processInput(c telebot.Context, text string, parts [][]
 		if len(agent.AllowedTools) > 0 {
 			req.Options.AllowedTools = agent.AllowedTools
 		}
+	}
+
+	// Set default cwd if no agent overrides it
+	if req.Options.Cwd == "" && bc.config.DefaultCwd != "" {
+		req.Options.Cwd = bc.config.DefaultCwd
 	}
 
 	// 4. Execute via bridge (streaming)
