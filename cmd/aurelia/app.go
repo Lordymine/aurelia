@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"time"
 
@@ -210,16 +209,10 @@ func setProviderEnv(cfg *config.AppConfig) {
 	if provider == "anthropic" && authMode == "subscription" {
 		os.Unsetenv("ANTHROPIC_API_KEY")
 		os.Unsetenv("ANTHROPIC_BASE_URL")
-		credPath := filepath.Join(os.Getenv("HOME"), ".claude", ".credentials.json")
+		home, _ := os.UserHomeDir()
+		credPath := filepath.Join(home, ".claude", ".credentials.json")
 		if _, err := os.Stat(credPath); os.IsNotExist(err) {
-			log.Println("No Claude credentials found. Running 'claude login'...")
-			cmd := exec.Command("claude", "login")
-			cmd.Stdin = os.Stdin
-			cmd.Stdout = os.Stdout
-			cmd.Stderr = os.Stderr
-			if err := cmd.Run(); err != nil {
-				log.Fatalf("Claude login failed: %v. Run 'claude login' manually.", err)
-			}
+			log.Fatalf("Anthropic subscription requires Claude login. Run 'claude login' first.")
 		}
 		return
 	}
