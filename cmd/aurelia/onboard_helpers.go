@@ -97,7 +97,7 @@ func wrapIndex(index, size int) int {
 
 func selectedProviderIndex(p string) int {
 	for i, option := range llmProviderChoices() {
-		if option == normalizeProvider(p) {
+		if option == config.NormalizeProvider(p) {
 			return i
 		}
 	}
@@ -121,7 +121,7 @@ func llmKeyLabel(p string) string {
 }
 
 func usesOpenAICodex(cfg config.EditableConfig) bool {
-	return normalizeProvider(cfg.LLMProvider) == "openai" && cfg.OpenAIAuthMode == "codex"
+	return config.NormalizeProvider(cfg.LLMProvider) == "openai" && cfg.OpenAIAuthMode == "codex"
 }
 
 func llmKeyHelp(p string) string {

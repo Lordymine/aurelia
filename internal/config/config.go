@@ -10,9 +10,9 @@ import (
 	"github.com/kocar/aurelia/internal/runtime"
 )
 
-// normalizeProvider returns a canonical lowercase provider name.
+// NormalizeProvider returns a canonical lowercase provider name.
 // Duplicated from cmd/aurelia to keep internal/config free of pkg/llm.
-func normalizeProvider(provider string) string {
+func NormalizeProvider(provider string) string {
 	normalized := strings.TrimSpace(strings.ToLower(provider))
 	if normalized == "" {
 		return "kimi"
@@ -22,7 +22,7 @@ func normalizeProvider(provider string) string {
 
 // defaultModelForProvider returns the default model for the given provider.
 func defaultModelForProvider(provider string) string {
-	switch normalizeProvider(provider) {
+	switch NormalizeProvider(provider) {
 	case "anthropic":
 		return "claude-sonnet-4-6"
 	case "google":
@@ -80,7 +80,7 @@ type AppConfig struct {
 
 // ProviderAPIKey returns the API key for the given provider, or empty string.
 func (c *AppConfig) ProviderAPIKey(provider string) string {
-	p, ok := c.Providers[normalizeProvider(provider)]
+	p, ok := c.Providers[NormalizeProvider(provider)]
 	if !ok {
 		return ""
 	}
@@ -89,7 +89,7 @@ func (c *AppConfig) ProviderAPIKey(provider string) string {
 
 // ProviderBaseURL returns the base URL for the given provider, or empty string.
 func (c *AppConfig) ProviderBaseURL(provider string) string {
-	p, ok := c.Providers[normalizeProvider(provider)]
+	p, ok := c.Providers[NormalizeProvider(provider)]
 	if !ok {
 		return ""
 	}
@@ -98,7 +98,7 @@ func (c *AppConfig) ProviderBaseURL(provider string) string {
 
 // ProviderAuthMode returns the auth mode for the given provider, or empty string.
 func (c *AppConfig) ProviderAuthMode(provider string) string {
-	p, ok := c.Providers[normalizeProvider(provider)]
+	p, ok := c.Providers[NormalizeProvider(provider)]
 	if !ok {
 		return ""
 	}
@@ -175,7 +175,7 @@ type EditableConfig struct {
 }
 
 func (c EditableConfig) LLMAPIKey(provider string) string {
-	switch normalizeProvider(provider) {
+	switch NormalizeProvider(provider) {
 	case "anthropic":
 		return c.AnthropicAPIKey
 	case "google":
@@ -196,7 +196,7 @@ func (c EditableConfig) LLMAPIKey(provider string) string {
 }
 
 func (c *EditableConfig) SetLLMAPIKey(provider, value string) {
-	switch normalizeProvider(provider) {
+	switch NormalizeProvider(provider) {
 	case "anthropic":
 		c.AnthropicAPIKey = value
 	case "google":

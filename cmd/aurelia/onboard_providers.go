@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+
+	"github.com/kocar/aurelia/internal/config"
 )
 
 // ModelOption is a selectable model entry for onboarding and config UIs.
@@ -124,15 +126,6 @@ var providerSpecs = []ProviderSpec{
 	},
 }
 
-// normalizeProvider returns a canonical lowercase provider name.
-func normalizeProvider(provider string) string {
-	normalized := strings.TrimSpace(strings.ToLower(provider))
-	if normalized == "" {
-		return "kimi"
-	}
-	return normalized
-}
-
 // providers returns a copy of the available provider specs.
 func providers() []ProviderSpec {
 	specs := make([]ProviderSpec, len(providerSpecs))
@@ -142,7 +135,7 @@ func providers() []ProviderSpec {
 
 // provider returns the spec for the given provider name.
 func provider(name string) (ProviderSpec, bool) {
-	normalized := normalizeProvider(name)
+	normalized := config.NormalizeProvider(name)
 	for _, spec := range providerSpecs {
 		if spec.ID == normalized {
 			return spec, true
@@ -185,7 +178,7 @@ func providerLabels() []string {
 func listModels(_ context.Context, p string, creds ModelCatalogCredentials) ([]ModelOption, error) {
 	_ = creds
 
-	p = normalizeProvider(p)
+	p = config.NormalizeProvider(p)
 	if p == "openai" && creds.OpenAIAuthMode == "codex" {
 		return fallbackModels("openai_codex"), nil
 	}
@@ -199,7 +192,7 @@ func listModels(_ context.Context, p string, creds ModelCatalogCredentials) ([]M
 
 // fallbackModelList returns curated default models when discovery is unavailable.
 func fallbackModelList(p string) []ModelOption {
-	return fallbackModels(normalizeProvider(p))
+	return fallbackModels(config.NormalizeProvider(p))
 }
 
 func fallbackModels(p string) []ModelOption {
