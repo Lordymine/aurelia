@@ -254,13 +254,19 @@ func createEmbedder(cfg *config.AppConfig) memory.Embedder {
 		}
 	}
 	if apiKey == "" {
-		// Try Google API key for free Gemini embeddings
-		googleKey := cfg.ProviderAPIKey("google")
-		if googleKey != "" {
-			log.Println("No embedding API key — using Google Gemini embeddings (free)")
-			return memory.NewGeminiEmbedder(googleKey, "gemini-embedding-001")
+		// Try local model at ~/.aurelia/models/all-MiniLM-L6-v2/
+		home, _ := os.UserHomeDir()
+		modelDir := filepath.Join(home, ".aurelia", "models", "all-MiniLM-L6-v2")
+		if _, err := os.Stat(filepath.Join(modelDir, "model.onnx")); err == nil {
+			log.Println("Using local sentence embeddings (all-MiniLM-L6-v2)")
+			embedder, err := memory.NewHugotEmbedder(modelDir)
+			if err != nil {
+				log.Printf("Failed to load local embedder: %v — falling back to word-hash", err)
+				return memory.NewMockEmbedder(256)
+			}
+			return embedder
 		}
-		log.Println("No embedding API key — using word-hash fallback")
+		log.Println("No embedding model found at ~/.aurelia/models/all-MiniLM-L6-v2/ — using word-hash fallback")
 		return memory.NewMockEmbedder(256)
 	}
 	model := cfg.EmbeddingModel
