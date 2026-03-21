@@ -55,7 +55,7 @@ func bootstrapApp() (*app, error) {
 	br := bridge.New(bridgeDir)
 
 	// 5. Create Embedder
-	embedder := createEmbedder(cfg)
+	embedder := createEmbedder()
 
 	// 6. Create Memory Store
 	memStore, err := memory.NewStore(resolver.DBPath("memory.db"), embedder)
@@ -244,36 +244,23 @@ func findBridgeDir() string {
 	return "bridge" // fallback
 }
 
-// createEmbedder builds the embedding provider from config.
-func createEmbedder(cfg *config.AppConfig) memory.Embedder {
-	apiKey := cfg.EmbeddingAPIKey
-	if apiKey == "" {
-		// Only use provider key if embedding provider is explicitly set
-		if cfg.EmbeddingProvider != "" {
-			apiKey = cfg.ProviderAPIKey(cfg.EmbeddingProvider)
+// createEmbedder builds the embedding provider.
+// Priority: local ONNX model (all-MiniLM-L6-v2) → word-hash fallback.
+func createEmbedder() memory.Embedder {
+	home, _ := os.UserHomeDir()
+	modelDir := filepath.Join(home, ".aurelia", "models", "all-MiniLM-L6-v2")
+	if _, err := os.Stat(filepath.Join(modelDir, "model.onnx")); err == nil {
+		log.Println("Using local sentence embeddings (all-MiniLM-L6-v2)")
+		embedder, err := memory.NewHugotEmbedder(modelDir)
+		if err != nil {
+			log.Printf("Failed to load local embedder: %v — falling back to word-hash", err)
+			return memory.NewMockEmbedder(256)
 		}
+		return embedder
 	}
-	if apiKey == "" {
-		// Try local model at ~/.aurelia/models/all-MiniLM-L6-v2/
-		home, _ := os.UserHomeDir()
-		modelDir := filepath.Join(home, ".aurelia", "models", "all-MiniLM-L6-v2")
-		if _, err := os.Stat(filepath.Join(modelDir, "model.onnx")); err == nil {
-			log.Println("Using local sentence embeddings (all-MiniLM-L6-v2)")
-			embedder, err := memory.NewHugotEmbedder(modelDir)
-			if err != nil {
-				log.Printf("Failed to load local embedder: %v — falling back to word-hash", err)
-				return memory.NewMockEmbedder(256)
-			}
-			return embedder
-		}
-		log.Println("No embedding model found at ~/.aurelia/models/all-MiniLM-L6-v2/ — using word-hash fallback")
-		return memory.NewMockEmbedder(256)
-	}
-	model := cfg.EmbeddingModel
-	if model == "" {
-		model = "voyage-3"
-	}
-	return memory.NewVoyageEmbedder(apiKey, model)
+	log.Println("No local embedding model found — using word-hash fallback")
+	log.Println("For semantic search, download the model to ~/.aurelia/models/all-MiniLM-L6-v2/")
+	return memory.NewMockEmbedder(256)
 }
 
 func buildTranscriber(cfg *config.AppConfig) (stt.Transcriber, error) {
