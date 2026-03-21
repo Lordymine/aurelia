@@ -21,8 +21,6 @@ type onboardStep int
 const (
 	stepLLMProvider onboardStep = iota
 	stepAnthropicAuthMode
-	stepOpenAIAuthMode
-	stepOpenAICodexLogin
 	stepLLMKey
 	stepLLMModel
 	stepSTTProvider
@@ -125,22 +123,12 @@ func runOnboardPrompt(stdin io.Reader, stdout io.Writer, resolver *runtime.PathR
 	if config.NormalizeProvider(current.LLMProvider) == "anthropic" {
 		current.AnthropicAuthMode, _ = promptChoice(reader, stdout, "Anthropic auth mode", current.AnthropicAuthMode, []string{"api_key", "subscription"})
 	}
-	if current.LLMProvider == "openai" {
-		current.OpenAIAuthMode, _ = promptChoice(reader, stdout, "OpenAI auth mode", current.OpenAIAuthMode, []string{"api_key", "codex"})
-	}
 	if err := writef(stdout, "STT provider [%s]: %s\n\n", current.STTProvider, "Groq"); err != nil {
 		return err
 	}
 
 	if usesAnthropicSubscription(*current) {
 		if err := writef(stdout, "Anthropic auth mode: subscription (no API key needed).\n\n"); err != nil {
-			return err
-		}
-	} else if usesOpenAICodex(*current) {
-		if err := writef(stdout, "OpenAI auth mode: codex CLI (experimental). Starting device auth now.\n\n"); err != nil {
-			return err
-		}
-		if err := runOpenAIDeviceAuthCommand(stdin, stdout); err != nil {
 			return err
 		}
 	} else {
@@ -203,21 +191,7 @@ func runOnboardTUI(stdin *os.File, stdout *os.File, resolver *runtime.PathResolv
 			return renderSavedSummary(stdout, resolver, &ui.cfg)
 		}
 		if action := ui.consumePendingAction(); action != "" {
-			switch action {
-			case "openai_codex_login":
-				if err := term.Restore(int(stdin.Fd()), oldState); err != nil {
-					return fmt.Errorf("restore terminal mode: %w", err)
-				}
-				clearScreen(stdout)
-				if err := runOpenAIDeviceAuthCommand(stdin, stdout); err != nil {
-					ui.message = err.Error()
-				}
-				oldState, err = term.MakeRaw(int(stdin.Fd()))
-				if err != nil {
-					return fmt.Errorf("re-enable raw terminal mode: %w", err)
-				}
-				reader = bufio.NewReader(stdin)
-			}
+			_ = action
 		}
 	}
 }
@@ -231,9 +205,6 @@ func newOnboardingUI(cfg config.EditableConfig) *onboardingUI {
 	}
 	if cfg.AnthropicAuthMode == "" {
 		cfg.AnthropicAuthMode = "api_key"
-	}
-	if cfg.OpenAIAuthMode == "" {
-		cfg.OpenAIAuthMode = "api_key"
 	}
 	if cfg.STTProvider == "" {
 		cfg.STTProvider = "groq"

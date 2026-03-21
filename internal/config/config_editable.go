@@ -19,9 +19,7 @@ type EditableConfig struct {
 	OpenRouterAPIKey       string
 	ZAIAPIKey              string
 	AlibabaAPIKey          string
-	OpenAIAPIKey           string
 	AnthropicAuthMode      string
-	OpenAIAuthMode         string
 	GroqAPIKey             string
 	MaxIterations          int
 	MemoryWindowSize       int
@@ -44,8 +42,6 @@ func (c EditableConfig) LLMAPIKey(provider string) string {
 		return c.ZAIAPIKey
 	case "alibaba":
 		return c.AlibabaAPIKey
-	case "openai":
-		return c.OpenAIAPIKey
 	default:
 		return c.KimiAPIKey
 	}
@@ -65,8 +61,6 @@ func (c *EditableConfig) SetLLMAPIKey(provider, value string) {
 		c.ZAIAPIKey = value
 	case "alibaba":
 		c.AlibabaAPIKey = value
-	case "openai":
-		c.OpenAIAPIKey = value
 	default:
 		c.KimiAPIKey = value
 	}
@@ -78,7 +72,6 @@ func DefaultEditableConfig() EditableConfig {
 		LLMProvider:            defaultLLMProvider,
 		LLMModel:               defaultModelForProvider(defaultLLMProvider),
 		AnthropicAuthMode:      "api_key",
-		OpenAIAuthMode:         "api_key",
 		STTProvider:            defaultSTTProvider,
 		TelegramAllowedUserIDs: []int64{},
 		MaxIterations:          defaultMaxIterations,
@@ -101,10 +94,6 @@ func appConfigToEditable(cfg *AppConfig) *EditableConfig {
 	if anthropicAuthMode == "" {
 		anthropicAuthMode = "api_key"
 	}
-	openAIAuthMode := cfg.ProviderAuthMode("openai")
-	if openAIAuthMode == "" {
-		openAIAuthMode = "api_key"
-	}
 	return &EditableConfig{
 		LLMProvider:            cfg.DefaultProvider,
 		LLMModel:               cfg.DefaultModel,
@@ -119,8 +108,6 @@ func appConfigToEditable(cfg *AppConfig) *EditableConfig {
 		OpenRouterAPIKey:       cfg.ProviderAPIKey("openrouter"),
 		ZAIAPIKey:              cfg.ProviderAPIKey("zai"),
 		AlibabaAPIKey:          cfg.ProviderAPIKey("alibaba"),
-		OpenAIAPIKey:           cfg.ProviderAPIKey("openai"),
-		OpenAIAuthMode:         openAIAuthMode,
 		GroqAPIKey:             cfg.ProviderAPIKey("groq"),
 		MaxIterations:          cfg.MaxIterations,
 		MemoryWindowSize:       cfg.MemoryWindowSize,
@@ -160,13 +147,6 @@ func editableToFileConfig(editable EditableConfig) fileConfig {
 	maybeSet("zai", editable.ZAIAPIKey)
 	maybeSet("alibaba", editable.AlibabaAPIKey)
 	maybeSet("groq", editable.GroqAPIKey)
-
-	if editable.OpenAIAPIKey != "" || editable.OpenAIAuthMode != "" {
-		providers["openai"] = ProviderConfig{
-			APIKey:   editable.OpenAIAPIKey,
-			AuthMode: editable.OpenAIAuthMode,
-		}
-	}
 
 	return fileConfig{
 		DefaultProvider:        editable.LLMProvider,

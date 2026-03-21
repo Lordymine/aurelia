@@ -85,8 +85,6 @@ func modelCatalogCredentials(cfg config.EditableConfig) ModelCatalogCredentials 
 		OpenRouterAPIKey: cfg.OpenRouterAPIKey,
 		ZAIAPIKey:        cfg.ZAIAPIKey,
 		AlibabaAPIKey:    cfg.AlibabaAPIKey,
-		OpenAIAPIKey:     cfg.OpenAIAPIKey,
-		OpenAIAuthMode:   cfg.OpenAIAuthMode,
 	}
 }
 

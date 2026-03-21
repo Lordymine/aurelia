@@ -97,7 +97,6 @@ func TestRunOnboard_PreservesExistingValuesOnBlankInput(t *testing.T) {
 		OpenRouterAPIKey:       "old-openrouter",
 		ZAIAPIKey:              "old-zai",
 		AlibabaAPIKey:          "old-alibaba",
-		OpenAIAPIKey:           "old-openai",
 		GroqAPIKey:             "old-groq",
 		MaxIterations:          600,
 		MemoryWindowSize:       21,
@@ -122,7 +121,6 @@ func TestRunOnboard_PreservesExistingValuesOnBlankInput(t *testing.T) {
 		cfg.ProviderAPIKey("openrouter") != "old-openrouter" ||
 		cfg.ProviderAPIKey("zai") != "old-zai" ||
 		cfg.ProviderAPIKey("alibaba") != "old-alibaba" ||
-		cfg.ProviderAPIKey("openai") != "old-openai" ||
 		cfg.ProviderAPIKey("groq") != "old-groq" {
 		t.Fatalf("expected secrets to be preserved, got %+v", cfg)
 	}
@@ -276,31 +274,6 @@ func TestLLMProviderChoicesMatchLabels(t *testing.T) {
 	}
 	if len(choices) == 0 {
 		t.Fatal("expected provider choices")
-	}
-}
-
-func TestOnboardingUI_OpenAICodexSkipsAPIKeyStep(t *testing.T) {
-	ui := newOnboardingUI(config.EditableConfig{
-		LLMProvider:      "openai",
-		LLMModel:         "gpt-5.4",
-		OpenAIAuthMode:   "api_key",
-		MemoryWindowSize: 20,
-		MaxIterations:    500,
-		STTProvider:      "groq",
-	})
-
-	ui.step = stepOpenAIAuthMode
-	ui.menuIndex = 1
-
-	_, _, err := ui.HandleKey(keyEvent{code: keyEnter})
-	if err != nil {
-		t.Fatalf("HandleKey() error = %v", err)
-	}
-	if ui.cfg.OpenAIAuthMode != "codex" {
-		t.Fatalf("OpenAIAuthMode = %q", ui.cfg.OpenAIAuthMode)
-	}
-	if ui.step != stepOpenAICodexLogin {
-		t.Fatalf("step = %v, want %v", ui.step, stepOpenAICodexLogin)
 	}
 }
 

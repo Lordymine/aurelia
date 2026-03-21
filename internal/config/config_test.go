@@ -138,7 +138,6 @@ func TestSaveAndReload(t *testing.T) {
 		AnthropicAPIKey:        "ant-key",
 		KimiAPIKey:             "kimi-key",
 		GroqAPIKey:             "groq-key",
-		OpenAIAuthMode:         "api_key",
 		MaxIterations:          300,
 		MemoryWindowSize:       25,
 		EmbeddingProvider:      "voyage",
@@ -360,8 +359,6 @@ func TestSaveEditable_PreservesManagedPaths(t *testing.T) {
 		OpenRouterAPIKey:       "openrouter-key",
 		ZAIAPIKey:              "zai-key",
 		AlibabaAPIKey:          "alibaba-key",
-		OpenAIAPIKey:           "openai-key",
-		OpenAIAuthMode:         "codex",
 		GroqAPIKey:             "groq-key",
 		MaxIterations:          900,
 		MemoryWindowSize:       25,
@@ -379,9 +376,6 @@ func TestSaveEditable_PreservesManagedPaths(t *testing.T) {
 	}
 	if cfg.DefaultProvider != "kimi" || cfg.DefaultModel != "kimi-k2-thinking" || cfg.STTProvider != "groq" {
 		t.Fatalf("unexpected providers llm=%q model=%q stt=%q", cfg.DefaultProvider, cfg.DefaultModel, cfg.STTProvider)
-	}
-	if cfg.ProviderAuthMode("openai") != "codex" {
-		t.Fatalf("openai auth_mode = %q, want %q", cfg.ProviderAuthMode("openai"), "codex")
 	}
 	if cfg.ProviderAPIKey("kilo") != "kilo-key" {
 		t.Fatalf("kilo key = %q, want %q", cfg.ProviderAPIKey("kilo"), "kilo-key")
@@ -410,7 +404,6 @@ func TestLoadEditable_RoundTrip(t *testing.T) {
 		TelegramBotToken:       "token",
 		TelegramAllowedUserIDs: []int64{1},
 		AnthropicAPIKey:        "ant-key",
-		OpenAIAuthMode:         "api_key",
 		GroqAPIKey:             "groq-key",
 		MaxIterations:          100,
 		MemoryWindowSize:       10,
@@ -433,9 +426,6 @@ func TestLoadEditable_RoundTrip(t *testing.T) {
 	}
 	if loaded.GroqAPIKey != "groq-key" {
 		t.Fatalf("GroqAPIKey = %q", loaded.GroqAPIKey)
-	}
-	if loaded.OpenAIAuthMode != "api_key" {
-		t.Fatalf("OpenAIAuthMode = %q", loaded.OpenAIAuthMode)
 	}
 }
 

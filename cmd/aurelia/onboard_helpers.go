@@ -18,22 +18,12 @@ func nextOnboardStep(cfg config.EditableConfig, step onboardStep) onboardStep {
 		if config.NormalizeProvider(cfg.LLMProvider) == "anthropic" {
 			return stepAnthropicAuthMode
 		}
-		if cfg.LLMProvider == "openai" {
-			return stepOpenAIAuthMode
-		}
 		return stepLLMKey
 	case stepAnthropicAuthMode:
 		if usesAnthropicSubscription(cfg) {
 			return stepLLMModel
 		}
 		return stepLLMKey
-	case stepOpenAIAuthMode:
-		if usesOpenAICodex(cfg) {
-			return stepOpenAICodexLogin
-		}
-		return stepLLMKey
-	case stepOpenAICodexLogin:
-		return stepLLMModel
 	case stepLLMKey:
 		return stepLLMModel
 	case stepLLMModel:
@@ -59,24 +49,14 @@ func previousOnboardStep(cfg config.EditableConfig, step onboardStep) onboardSte
 	switch step {
 	case stepAnthropicAuthMode:
 		return stepLLMProvider
-	case stepOpenAIAuthMode:
-		return stepLLMProvider
-	case stepOpenAICodexLogin:
-		return stepOpenAIAuthMode
 	case stepLLMKey:
 		if config.NormalizeProvider(cfg.LLMProvider) == "anthropic" {
 			return stepAnthropicAuthMode
-		}
-		if cfg.LLMProvider == "openai" {
-			return stepOpenAIAuthMode
 		}
 		return stepLLMProvider
 	case stepLLMModel:
 		if config.NormalizeProvider(cfg.LLMProvider) == "anthropic" && usesAnthropicSubscription(cfg) {
 			return stepAnthropicAuthMode
-		}
-		if cfg.LLMProvider == "openai" && usesOpenAICodex(cfg) {
-			return stepOpenAICodexLogin
 		}
 		return stepLLMKey
 	case stepSTTProvider:
@@ -140,10 +120,6 @@ func usesAnthropicSubscription(cfg config.EditableConfig) bool {
 	return config.NormalizeProvider(cfg.LLMProvider) == "anthropic" && cfg.AnthropicAuthMode == "subscription"
 }
 
-func usesOpenAICodex(cfg config.EditableConfig) bool {
-	return config.NormalizeProvider(cfg.LLMProvider) == "openai" && cfg.OpenAIAuthMode == "codex"
-}
-
 func llmKeyHelp(p string) string {
 	spec, ok := provider(p)
 	if !ok {
@@ -158,10 +134,6 @@ func currentLLMKey(cfg config.EditableConfig) string {
 
 func setCurrentLLMKey(cfg *config.EditableConfig, value string) {
 	cfg.SetLLMAPIKey(cfg.LLMProvider, value)
-}
-
-func runOpenAIDeviceAuthCommand(stdin io.Reader, stdout io.Writer) error {
-	return runCodexLoginCommand(stdin, stdout, "--device-auth")
 }
 
 func promptString(reader *bufio.Reader, stdout io.Writer, label, current string, secret bool) (string, error) {
@@ -395,20 +367,11 @@ func renderSavedSummary(stdout io.Writer, resolver *runtime.PathResolver, curren
 			return err
 		}
 	}
-	if current.LLMProvider == "openai" {
-		if err := writef(stdout, "OpenAI auth mode: %s\n", current.OpenAIAuthMode); err != nil {
-			return err
-		}
-	}
 	if err := writef(stdout, "LLM model: %s\n", current.LLMModel); err != nil {
 		return err
 	}
 	if usesAnthropicSubscription(*current) {
 		if err := writef(stdout, "Anthropic auth: subscription (no API key)\n"); err != nil {
-			return err
-		}
-	} else if usesOpenAICodex(*current) {
-		if err := writef(stdout, "OpenAI Codex login: run `aurelia auth openai`\n"); err != nil {
 			return err
 		}
 	} else {

@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"os/exec"
 	"strings"
 
 	"github.com/kocar/aurelia/internal/config"
@@ -49,8 +48,6 @@ type ModelCatalogCredentials struct {
 	OpenRouterAPIKey string
 	ZAIAPIKey        string
 	AlibabaAPIKey    string
-	OpenAIAPIKey     string
-	OpenAIAuthMode   string
 }
 
 // ProviderSpec describes a supported LLM provider for onboarding and config.
@@ -116,14 +113,6 @@ var providerSpecs = []ProviderSpec{
 		APIKeyLabel:  "Alibaba Coding Plan API key",
 		APIKeyHelp:   "Used for the Alibaba Coding Plan runtime.",
 	},
-	{
-		ID:           "openai",
-		Label:        "OpenAI",
-		DefaultModel: "gpt-5.4",
-		APIKeyLabel:  "OpenAI API key",
-		APIKeyHelp:   "Used for the OpenAI LLM runtime.",
-		AuthModes:    []string{"api_key", "codex"},
-	},
 }
 
 // providers returns a copy of the available provider specs.
@@ -179,9 +168,6 @@ func listModels(_ context.Context, p string, creds ModelCatalogCredentials) ([]M
 	_ = creds
 
 	p = config.NormalizeProvider(p)
-	if p == "openai" && creds.OpenAIAuthMode == "codex" {
-		return fallbackModels("openai_codex"), nil
-	}
 
 	models := fallbackModels(p)
 	if models == nil {
@@ -236,19 +222,6 @@ func fallbackModels(p string) []ModelOption {
 			{ID: "qwen-vl-max", Name: "Qwen VL Max", SupportsImageInput: true},
 			{ID: "qwen3.5-plus", Name: "Qwen3.5 Plus"},
 		}
-	case "openai":
-		return []ModelOption{
-			{ID: "gpt-5.4", Name: "GPT-5.4", SupportsImageInput: true, SupportsTools: true},
-			{ID: "gpt-5-mini", Name: "GPT-5 mini", SupportsImageInput: true, SupportsTools: true},
-			{ID: "o4-mini", Name: "o4-mini", SupportsImageInput: true, SupportsTools: true},
-		}
-	case "openai_codex":
-		return []ModelOption{
-			{ID: "gpt-5.4", Name: "GPT-5.4", SupportsImageInput: true, SupportsTools: true},
-			{ID: "gpt-5-mini", Name: "GPT-5 mini", SupportsImageInput: true, SupportsTools: true},
-			{ID: "gpt-5.2-codex", Name: "GPT-5.2-Codex"},
-			{ID: "o4-mini", Name: "o4-mini", SupportsImageInput: true, SupportsTools: true},
-		}
 	case "kimi":
 		return []ModelOption{
 			{ID: "kimi-k2-thinking", Name: "Kimi K2 Thinking"},
@@ -264,10 +237,3 @@ func fallbackModels(p string) []ModelOption {
 	}
 }
 
-var codexLookPath = exec.LookPath
-
-// ensureCodexCLIAvailable checks that the codex CLI binary is reachable.
-func ensureCodexCLIAvailable() error {
-	_, err := codexLookPath("codex")
-	return err
-}
