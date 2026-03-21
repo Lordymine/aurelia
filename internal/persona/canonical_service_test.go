@@ -1,12 +1,10 @@
 package persona
 
 import (
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 func newTestCanonicalService(t *testing.T) *CanonicalIdentityService {
@@ -37,27 +35,25 @@ IDENTITY_BODY`
 	return NewCanonicalIdentityService(identityPath, soulPath, userPath, "", "", "")
 }
 
-func TestCanonicalIdentityService_BuildPrompt_InjectsCurrentLocalDate(t *testing.T) {
+func TestCanonicalIdentityService_BuildPrompt_ContainsPersonaSections(t *testing.T) {
 	service := newTestCanonicalService(t)
-	loc := time.FixedZone("America/Sao_Paulo", -3*60*60)
-	service.location = loc
-	service.now = func() time.Time {
-		return time.Date(2026, time.March, 13, 9, 45, 0, 0, time.UTC)
-	}
 
-	prompt, _, err := service.BuildPrompt(context.Background(), "42", "42")
+	prompt, err := service.BuildPrompt()
 	if err != nil {
 		t.Fatalf("BuildPrompt() error = %v", err)
 	}
 
-	if !strings.Contains(prompt, "Data local atual: 2026-03-13") {
-		t.Fatalf("expected current local date in prompt, got %q", prompt)
+	if !strings.Contains(prompt, "IDENTITY_BODY") {
+		t.Fatalf("expected identity body in prompt, got %q", prompt)
 	}
-	if !strings.Contains(prompt, "Horario local atual: 2026-03-13T06:45:00-03:00") {
-		t.Fatalf("expected localized timestamp in prompt, got %q", prompt)
+	if !strings.Contains(prompt, "# Soul") {
+		t.Fatalf("expected soul content in prompt, got %q", prompt)
 	}
-	if !strings.Contains(prompt, "Fuso horario atual: America/Sao_Paulo") {
-		t.Fatalf("expected timezone in prompt, got %q", prompt)
+	if !strings.Contains(prompt, "# User") {
+		t.Fatalf("expected user content in prompt, got %q", prompt)
+	}
+	if !strings.Contains(prompt, "# CANONICAL IDENTITY") {
+		t.Fatalf("expected canonical identity block in prompt, got %q", prompt)
 	}
 }
 
@@ -70,9 +66,9 @@ func TestCanonicalIdentityService_BuildPrompt_InjectsOwnerPlaybook(t *testing.T)
 	}
 
 	service := newTestCanonicalServiceWithOwnerDocs(t, playbookPath, "")
-	prompt, _, err := service.BuildPromptForQuery(context.Background(), "42", "42", "test query")
+	prompt, err := service.BuildPrompt()
 	if err != nil {
-		t.Fatalf("BuildPromptForQuery() error = %v", err)
+		t.Fatalf("BuildPrompt() error = %v", err)
 	}
 	if !strings.Contains(prompt, "# OWNER CONTEXT") {
 		t.Fatalf("expected OWNER CONTEXT section in prompt, got %q", prompt)
@@ -91,9 +87,9 @@ func TestCanonicalIdentityService_BuildPrompt_InjectsProjectPlaybook(t *testing.
 	}
 
 	service := newTestCanonicalServiceWithProjectPlaybook(t, "", "", playbookPath)
-	prompt, _, err := service.BuildPromptForQuery(context.Background(), "42", "42", "test query")
+	prompt, err := service.BuildPrompt()
 	if err != nil {
-		t.Fatalf("BuildPromptForQuery() error = %v", err)
+		t.Fatalf("BuildPrompt() error = %v", err)
 	}
 	if !strings.Contains(prompt, "# PROJECT CONTEXT") {
 		t.Fatalf("expected PROJECT CONTEXT section in prompt, got %q", prompt)
@@ -109,9 +105,9 @@ func TestCanonicalIdentityService_BuildPrompt_ToleratesAbsentOwnerDocs(t *testin
 		filepath.Join(dir, "nonexistent_OWNER_PLAYBOOK.md"),
 		filepath.Join(dir, "nonexistent_LESSONS_LEARNED.md"),
 	)
-	prompt, _, err := service.BuildPromptForQuery(context.Background(), "42", "42", "test query")
+	prompt, err := service.BuildPrompt()
 	if err != nil {
-		t.Fatalf("BuildPromptForQuery() error = %v", err)
+		t.Fatalf("BuildPrompt() error = %v", err)
 	}
 	if strings.Contains(prompt, "# OWNER CONTEXT") {
 		t.Fatalf("expected NO OWNER CONTEXT section when files absent, got %q", prompt)
@@ -167,6 +163,3 @@ IDENTITY_BODY`
 
 	return NewCanonicalIdentityService(identityPath, soulPath, userPath, ownerPlaybookPath, lessonsLearnedPath, projectPlaybookPath)
 }
-
-// Tests for memory-backed features (facts, notes, retrieval, archive reprocess) were removed
-// because they depend on internal/memory which was deleted.

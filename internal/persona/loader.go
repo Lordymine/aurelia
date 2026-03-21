@@ -18,7 +18,6 @@ type Config struct {
 type Persona struct {
 	Config            Config
 	SystemPrompt      string
-	PromptBody        string
 	CanonicalIdentity CanonicalIdentity
 }
 
@@ -64,7 +63,6 @@ func LoadPersona(identityPath, soulPath, userPath string) (*Persona, error) {
 	return &Persona{
 		Config:            config,
 		SystemPrompt:      sysPrompt,
-		PromptBody:        promptBody,
 		CanonicalIdentity: canonicalIdentity,
 	}, nil
 }

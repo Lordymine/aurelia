@@ -1,12 +1,6 @@
 package persona
 
-import (
-	"time"
-)
-
-// CanonicalIdentityService centralizes identity resolution and prompt building.
-// Memory-backed features (facts, notes, retrieval) were removed — will be replaced
-// by semantic memory via the bridge in a later task.
+// CanonicalIdentityService loads persona files and builds a system prompt.
 type CanonicalIdentityService struct {
 	identityPath        string
 	soulPath            string
@@ -14,11 +8,9 @@ type CanonicalIdentityService struct {
 	ownerPlaybookPath   string
 	lessonsLearnedPath  string
 	projectPlaybookPath string
-	now                 func() time.Time
-	location            *time.Location
 }
 
-// NewCanonicalIdentityService creates a canonical identity service without memory backing.
+// NewCanonicalIdentityService creates a persona loader.
 func NewCanonicalIdentityService(
 	identityPath, soulPath, userPath string,
 	ownerPlaybookPath, lessonsLearnedPath string,
@@ -31,7 +23,27 @@ func NewCanonicalIdentityService(
 		ownerPlaybookPath:   ownerPlaybookPath,
 		lessonsLearnedPath:  lessonsLearnedPath,
 		projectPlaybookPath: projectPlaybookPath,
-		now:                 time.Now,
-		location:            time.Local,
 	}
+}
+
+// BuildPrompt loads persona files and returns the assembled system prompt.
+func (s *CanonicalIdentityService) BuildPrompt() (string, error) {
+	p, err := LoadPersona(s.identityPath, s.soulPath, s.userPath)
+	if err != nil {
+		return "", err
+	}
+
+	prompt := p.SystemPrompt
+
+	ownerBlock := s.buildOwnerDocsBlock()
+	if ownerBlock != "" {
+		prompt = prompt + "\n\n" + ownerBlock
+	}
+
+	projectBlock := s.buildProjectBlock()
+	if projectBlock != "" {
+		prompt = prompt + "\n\n" + projectBlock
+	}
+
+	return prompt, nil
 }

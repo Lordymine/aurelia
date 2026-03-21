@@ -136,31 +136,6 @@ IDENTITY_BODY`
 	}
 }
 
-func TestPersonaRenderSystemPrompt_UsesResolvedIdentity(t *testing.T) {
-	persona := &Persona{
-		Config:     Config{Name: "Lex", Role: "Team Lead"},
-		PromptBody: "IDENTITY_BODY\n\nSOUL_BODY\n\n# User\nNome: Nao definido",
-		CanonicalIdentity: CanonicalIdentity{
-			AgentName: "Lex",
-			AgentRole: "Team Lead",
-			UserName:  "nao definido",
-		},
-	}
-
-	got := persona.RenderSystemPrompt(CanonicalIdentity{
-		AgentName: "Lex",
-		AgentRole: "Chief Architect",
-		UserName:  "Rafael",
-	})
-
-	if !strings.Contains(got, "Papel canonico do agente: Chief Architect") {
-		t.Fatalf("expected overridden agent role, got %q", got)
-	}
-	if !strings.Contains(got, "Nome canonico do usuario: Rafael") {
-		t.Fatalf("expected overridden user name, got %q", got)
-	}
-}
-
 // Tests for long-term memory, facts, notes, and retrieval were removed
 // because they depend on internal/memory which was deleted.
 // They will be rewritten when semantic memory is wired via the bridge.
