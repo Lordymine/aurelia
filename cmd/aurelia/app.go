@@ -211,6 +211,8 @@ func setProviderEnv(cfg *config.AppConfig) {
 	}
 	if baseURL != "" {
 		os.Setenv("ANTHROPIC_BASE_URL", baseURL)
+		// Kimi and other non-Anthropic providers may not support tool_search
+		os.Setenv("ENABLE_TOOL_SEARCH", "false")
 	}
 }
 
@@ -232,7 +234,14 @@ func findBridgeDir() string {
 func createEmbedder(cfg *config.AppConfig) memory.Embedder {
 	apiKey := cfg.EmbeddingAPIKey
 	if apiKey == "" {
-		apiKey = cfg.ProviderAPIKey(cfg.DefaultProvider)
+		// Only use provider key if embedding provider is explicitly set
+		if cfg.EmbeddingProvider != "" {
+			apiKey = cfg.ProviderAPIKey(cfg.EmbeddingProvider)
+		}
+	}
+	if apiKey == "" {
+		log.Println("No embedding API key configured — using local word-hash embeddings")
+		return memory.NewMockEmbedder(256)
 	}
 	model := cfg.EmbeddingModel
 	if model == "" {
@@ -251,13 +260,29 @@ func buildTranscriber(cfg *config.AppConfig) (stt.Transcriber, error) {
 }
 
 // registerScheduledAgents syncs agent schedules into the cron store.
+// Uses a deterministic job ID derived from agent name so that restarts
+// skip agents that already have a job registered (idempotent).
 func registerScheduledAgents(store *cron.SQLiteCronStore, reg *agents.Registry) {
 	if reg == nil {
 		return
 	}
 	svc := cron.NewService(store, nil)
 	for _, a := range reg.Scheduled() {
-		_, err := svc.CreateJob(context.Background(), cron.CronJob{
+		jobID := "scheduled-agent-" + a.Name
+
+		// Skip if a job with this ID already exists.
+		existing, err := store.GetJob(context.Background(), jobID)
+		if err != nil {
+			log.Printf("Warning: failed to check existing job for agent %q: %v", a.Name, err)
+			continue
+		}
+		if existing != nil {
+			log.Printf("Scheduled agent %q already registered (job %s), skipping", a.Name, jobID)
+			continue
+		}
+
+		_, err = svc.CreateJob(context.Background(), cron.CronJob{
+			ID:           jobID,
 			AgentName:    a.Name,
 			ScheduleType: "cron",
 			CronExpr:     a.Schedule,
