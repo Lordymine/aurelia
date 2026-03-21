@@ -42,8 +42,6 @@ func (m ModelOption) Label() string {
 // ModelCatalogCredentials carries provider-specific credentials used by model catalogs.
 type ModelCatalogCredentials struct {
 	AnthropicAPIKey  string
-	GoogleAPIKey     string
-	KiloAPIKey       string
 	KimiAPIKey       string
 	OpenRouterAPIKey string
 	ZAIAPIKey        string
@@ -64,54 +62,39 @@ type ProviderSpec struct {
 var providerSpecs = []ProviderSpec{
 	{
 		ID:           "kimi",
-		Label:        "Kimi",
-		DefaultModel: "kimi-k2-thinking",
+		Label:        "Kimi (Moonshot)",
+		DefaultModel: "k2.5",
 		APIKeyLabel:  "Kimi API key",
-		APIKeyHelp:   "Used for the main LLM runtime.",
+		APIKeyHelp:   "Anthropic-compatible. Base URL: https://api.kimi.com/coding/",
 	},
 	{
 		ID:           "anthropic",
 		Label:        "Anthropic",
 		DefaultModel: "claude-sonnet-4-6",
 		APIKeyLabel:  "Anthropic API key",
-		APIKeyHelp:   "Used for the Anthropic LLM runtime.",
-	},
-	{
-		ID:           "google",
-		Label:        "Google",
-		DefaultModel: "gemini-2.5-pro",
-		APIKeyLabel:  "Google API key",
-		APIKeyHelp:   "Used for the Google Gemini LLM runtime.",
-	},
-	{
-		ID:                  "kilo",
-		Label:               "Kilo Code",
-		DefaultModel:        "openai/gpt-5.4",
-		APIKeyLabel:         "Kilo API key",
-		APIKeyHelp:          "Used for the Kilo Gateway LLM runtime.",
-		SupportsModelSearch: true,
+		APIKeyHelp:   "Native Anthropic API. Supports subscription (Max plan) or API key.",
 	},
 	{
 		ID:                  "openrouter",
 		Label:               "OpenRouter",
 		DefaultModel:        "openrouter/auto",
 		APIKeyLabel:         "OpenRouter API key",
-		APIKeyHelp:          "Used for the OpenRouter LLM runtime.",
+		APIKeyHelp:          "Proxy multi-modelo. Base URL: https://openrouter.ai/api/v1",
 		SupportsModelSearch: true,
 	},
 	{
 		ID:           "zai",
-		Label:        "Z.ai",
+		Label:        "Z.ai (GLM)",
 		DefaultModel: "glm-5",
-		APIKeyLabel:  "Z.ai Coding Plan API key",
-		APIKeyHelp:   "Used for the Z.ai GLM Coding Plan runtime.",
+		APIKeyLabel:  "Z.ai API key",
+		APIKeyHelp:   "Anthropic-compatible. Base URL: https://api.z.ai/api/anthropic",
 	},
 	{
 		ID:           "alibaba",
-		Label:        "Alibaba",
+		Label:        "Alibaba (Qwen)",
 		DefaultModel: "qwen3-coder-plus",
-		APIKeyLabel:  "Alibaba Coding Plan API key",
-		APIKeyHelp:   "Used for the Alibaba Coding Plan runtime.",
+		APIKeyLabel:  "Alibaba DashScope API key",
+		APIKeyHelp:   "Anthropic-compatible. Base URL: https://dashscope-intl.aliyuncs.com/apps/anthropic",
 	},
 }
 
@@ -188,20 +171,6 @@ func fallbackModels(p string) []ModelOption {
 			{ID: "claude-sonnet-4-6", Name: "Claude Sonnet 4.6", SupportsImageInput: true},
 			{ID: "claude-opus-4-6", Name: "Claude Opus 4.6", SupportsImageInput: true},
 			{ID: "claude-haiku-4-5", Name: "Claude Haiku 4.5", SupportsImageInput: true},
-		}
-	case "google":
-		return []ModelOption{
-			{ID: "gemini-2.5-pro", Name: "Gemini 2.5 Pro", SupportsImageInput: true},
-			{ID: "gemini-2.5-flash", Name: "Gemini 2.5 Flash", SupportsImageInput: true},
-			{ID: "gemini-2.5-flash-lite", Name: "Gemini 2.5 Flash-Lite", SupportsImageInput: true},
-		}
-	case "kilo":
-		return []ModelOption{
-			{ID: "openai/gpt-5.4", Name: "OpenAI: GPT-5.4", SupportsImageInput: true},
-			{ID: "anthropic/claude-sonnet-4.6", Name: "Anthropic: Claude Sonnet 4.6", SupportsImageInput: true},
-			{ID: "google/gemini-3.1-pro-preview", Name: "Google: Gemini 3.1 Pro Preview", SupportsImageInput: true},
-			{ID: "zai/glm-4.6v", Name: "Z.ai: GLM 4.6V", SupportsImageInput: true},
-			{ID: "zai/glm-5-turbo", Name: "Z.ai: GLM 5 Turbo"},
 		}
 	case "openrouter":
 		return []ModelOption{

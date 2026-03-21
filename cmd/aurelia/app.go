@@ -223,12 +223,25 @@ func setProviderEnv(cfg *config.AppConfig) {
 	apiKey := cfg.ProviderAPIKey(provider)
 	baseURL := cfg.ProviderBaseURL(provider)
 
+	// Auto-set base URL for known providers if not explicitly configured
+	if baseURL == "" {
+		switch config.NormalizeProvider(provider) {
+		case "kimi":
+			baseURL = "https://api.kimi.com/coding/"
+		case "openrouter":
+			baseURL = "https://openrouter.ai/api/v1"
+		case "zai":
+			baseURL = "https://api.z.ai/api/anthropic"
+		case "alibaba":
+			baseURL = "https://dashscope-intl.aliyuncs.com/apps/anthropic"
+		}
+	}
+
 	if apiKey != "" {
 		os.Setenv("ANTHROPIC_API_KEY", apiKey)
 	}
 	if baseURL != "" {
 		os.Setenv("ANTHROPIC_BASE_URL", baseURL)
-		// Kimi and other non-Anthropic providers may not support tool_search
 		os.Setenv("ENABLE_TOOL_SEARCH", "false")
 	}
 }

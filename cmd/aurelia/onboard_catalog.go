@@ -79,8 +79,6 @@ func selectedModelIndex(options []ModelOption, current string) int {
 func modelCatalogCredentials(cfg config.EditableConfig) ModelCatalogCredentials {
 	return ModelCatalogCredentials{
 		AnthropicAPIKey:  cfg.AnthropicAPIKey,
-		GoogleAPIKey:     cfg.GoogleAPIKey,
-		KiloAPIKey:       cfg.KiloAPIKey,
 		KimiAPIKey:       cfg.KimiAPIKey,
 		OpenRouterAPIKey: cfg.OpenRouterAPIKey,
 		ZAIAPIKey:        cfg.ZAIAPIKey,
