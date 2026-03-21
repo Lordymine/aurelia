@@ -100,6 +100,23 @@ func (r *Registry) Route(message string) *Agent {
 	return r.agents[name]
 }
 
+// ClassifyPrompt builds a prompt that asks an LLM to pick the best agent for a message.
+// Returns empty string if no agents are loaded.
+func (r *Registry) ClassifyPrompt(message string) string {
+	if len(r.agents) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("Given these available agents:\n\n")
+	for _, a := range r.Agents() {
+		fmt.Fprintf(&sb, "- %s: %s\n", a.Name, a.Description)
+	}
+	fmt.Fprintf(&sb, "\nUser message: %q\n\n", message)
+	sb.WriteString("Reply with ONLY the agent name that best matches, or 'none' if no agent is a good match. Reply with a single word.")
+	return sb.String()
+}
+
 // parseAgentFile splits a markdown file on --- markers, parses YAML frontmatter,
 // and extracts the prompt body. Returns nil if the file has no valid frontmatter
 // or the name field is empty.

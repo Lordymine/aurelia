@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 )
 
@@ -306,6 +307,50 @@ Prompt.
 
 	if !sort.StringsAreSorted(names) {
 		t.Errorf("expected agents sorted by name, got %v", names)
+	}
+}
+
+func TestRegistry_ClassifyPrompt(t *testing.T) {
+	dir := t.TempDir()
+
+	writeAgent(t, dir, "prospector.md", `---
+name: prospector
+description: Busca leads e prospecta clientes
+---
+Prompt.
+`)
+
+	reg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	prompt := reg.ClassifyPrompt("find new leads for ACME Corp")
+	if prompt == "" {
+		t.Fatal("expected non-empty classify prompt")
+	}
+	if !strings.Contains(prompt, "prospector") {
+		t.Errorf("expected prompt to contain agent name 'prospector', got %q", prompt)
+	}
+	if !strings.Contains(prompt, "Busca leads") {
+		t.Errorf("expected prompt to contain agent description, got %q", prompt)
+	}
+	if !strings.Contains(prompt, "find new leads for ACME Corp") {
+		t.Errorf("expected prompt to contain user message, got %q", prompt)
+	}
+}
+
+func TestRegistry_ClassifyPrompt_Empty(t *testing.T) {
+	dir := t.TempDir()
+
+	reg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	prompt := reg.ClassifyPrompt("hello")
+	if prompt != "" {
+		t.Errorf("expected empty prompt for empty registry, got %q", prompt)
 	}
 }
 

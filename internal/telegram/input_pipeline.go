@@ -26,6 +26,31 @@ func (bc *BotController) processInput(c telebot.Context, text string, parts [][]
 	// 1. Route to agent via registry
 	agent := bc.agents.Route(text)
 
+	// If no @name match and agents exist, try LLM classification
+	if agent == nil && bc.agents != nil && len(bc.agents.Agents()) > 0 {
+		classifyPrompt := bc.agents.ClassifyPrompt(text)
+		if classifyPrompt != "" {
+			classifyCtx, classifyCancel := context.WithTimeout(context.Background(), 15*time.Second)
+			result, err := bc.bridge.ExecuteSync(classifyCtx, bridge.Request{
+				Command: "query",
+				Prompt:  classifyPrompt,
+				Options: bridge.RequestOptions{
+					Model:          bc.config.DefaultModel,
+					SystemPrompt:   "You are a message classifier. Reply with only the agent name or 'none'.",
+					MaxTurns:       1,
+					PermissionMode: "bypassPermissions",
+				},
+			})
+			classifyCancel()
+			if err == nil && result.Type == "result" {
+				name := strings.TrimSpace(strings.ToLower(result.Content))
+				if name != "none" && name != "" {
+					agent = bc.agents.Get(name)
+				}
+			}
+		}
+	}
+
 	// Strip @agent prefix from user text if agent was routed
 	userText := text
 	if agent != nil {
