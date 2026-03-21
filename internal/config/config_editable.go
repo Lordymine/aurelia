@@ -182,8 +182,7 @@ func sameFileConfig(a, b fileConfig) bool {
 		a.MaxIterations != b.MaxIterations ||
 		a.DBPath != b.DBPath ||
 		a.MemoryWindowSize != b.MemoryWindowSize ||
-		a.MCPConfigPath != b.MCPConfigPath ||
-		a.DefaultCwd != b.DefaultCwd {
+		a.MCPConfigPath != b.MCPConfigPath {
 		return false
 	}
 	if len(a.TelegramAllowedUserIDs) != len(b.TelegramAllowedUserIDs) {

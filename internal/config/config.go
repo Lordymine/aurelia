@@ -75,7 +75,6 @@ type AppConfig struct {
 	DBPath           string `json:"db_path"`
 	MemoryWindowSize int    `json:"memory_window_size"`
 	MCPConfigPath    string `json:"mcp_servers_config_path"`
-	DefaultCwd       string `json:"default_cwd,omitempty"`
 }
 
 // ProviderAPIKey returns the API key for the given provider, or empty string.
@@ -124,7 +123,6 @@ type fileConfig struct {
 	DBPath           string `json:"db_path"`
 	MemoryWindowSize int    `json:"memory_window_size"`
 	MCPConfigPath    string `json:"mcp_servers_config_path"`
-	DefaultCwd       string `json:"default_cwd,omitempty"`
 }
 
 // Load reads the instance-local JSON config, creates it with defaults when
@@ -252,6 +250,5 @@ func toAppConfig(cfg fileConfig) *AppConfig {
 		DBPath:                 cfg.DBPath,
 		MemoryWindowSize:       cfg.MemoryWindowSize,
 		MCPConfigPath:          cfg.MCPConfigPath,
-		DefaultCwd:             cfg.DefaultCwd,
 	}
 }

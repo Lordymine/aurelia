@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"time"
 
@@ -205,11 +206,21 @@ func setProviderEnv(cfg *config.AppConfig) {
 	provider := cfg.DefaultProvider
 	authMode := cfg.ProviderAuthMode(provider)
 
-	// Subscription mode (Anthropic Max): don't set API key, SDK uses OAuth
+	// Subscription mode (Anthropic Max): SDK uses OAuth from ~/.claude/.credentials.json
 	if provider == "anthropic" && authMode == "subscription" {
-		// Clear any existing key so SDK falls back to OAuth
 		os.Unsetenv("ANTHROPIC_API_KEY")
 		os.Unsetenv("ANTHROPIC_BASE_URL")
+		credPath := filepath.Join(os.Getenv("HOME"), ".claude", ".credentials.json")
+		if _, err := os.Stat(credPath); os.IsNotExist(err) {
+			log.Println("No Claude credentials found. Running 'claude login'...")
+			cmd := exec.Command("claude", "login")
+			cmd.Stdin = os.Stdin
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			if err := cmd.Run(); err != nil {
+				log.Fatalf("Claude login failed: %v. Run 'claude login' manually.", err)
+			}
+		}
 		return
 	}
 
