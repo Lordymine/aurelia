@@ -64,6 +64,9 @@ function buildSDKOptions(opts: RequestOptions | undefined) {
   if (opts.mcp_servers) sdkOpts.mcpServers = opts.mcp_servers;
   if (opts.allowed_tools) sdkOpts.allowedTools = opts.allowed_tools;
 
+  // Load user settings (plugins, MCPs, skills, hooks) from ~/.claude/
+  sdkOpts.settingSources = ["user", "project", "local"];
+
   return sdkOpts;
 }
 
