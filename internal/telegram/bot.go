@@ -25,6 +25,7 @@ type BotController struct {
 	memory           *memory.Store
 	persona          *persona.CanonicalIdentityService
 	stt              stt.Transcriber
+	sessions         *sessionStore
 	personasDir      string
 	bootstrapMu      sync.Mutex
 	pendingBootstrap map[int64]bootstrapState
@@ -72,6 +73,7 @@ func NewBotController(
 		memory:           mem,
 		persona:          p,
 		stt:              s,
+		sessions:         newSessionStore(),
 		personasDir:      personasDir,
 		pendingBootstrap: make(map[int64]bootstrapState),
 		pendingAlbums:    make(map[string]*pendingAlbum),

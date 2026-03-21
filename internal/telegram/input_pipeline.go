@@ -74,6 +74,11 @@ func (bc *BotController) processInput(c telebot.Context, text string, parts [][]
 		}
 	}
 
+	// Resume previous session if available
+	if sessionID := bc.sessions.Get(c.Chat().ID); sessionID != "" {
+		req.Options.Resume = sessionID
+	}
+
 	// 4. Execute via bridge (streaming)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
@@ -171,6 +176,11 @@ func (bc *BotController) processBridgeEvents(c telebot.Context, ch <-chan bridge
 			}
 			log.Printf("Bridge error: %s", errMsg)
 			return SendError(bc.bot, c.Chat(), errMsg)
+
+		case "system":
+			if ev.SessionID != "" {
+				bc.sessions.Set(c.Chat().ID, ev.SessionID)
+			}
 
 		default:
 			log.Printf("Bridge event (ignored): %s", ev.Type)
