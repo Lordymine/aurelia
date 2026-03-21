@@ -9,7 +9,6 @@ import (
 
 	"github.com/kocar/aurelia/internal/config"
 	"github.com/kocar/aurelia/internal/runtime"
-	"github.com/kocar/aurelia/pkg/llm"
 )
 
 func TestRunOnboard_SavesInteractiveConfig(t *testing.T) {
@@ -201,7 +200,7 @@ func TestOnboardingUI_MenuFlowAndBack(t *testing.T) {
 func TestOnboardingUI_ModelSelectionPersistsChoice(t *testing.T) {
 	ui := newOnboardingUI(config.DefaultEditableConfig())
 	ui.step = stepLLMModel
-	ui.modelOptions = []llm.ModelOption{
+	ui.modelOptions = []ModelOption{
 		{ID: "kimi-k2-thinking", Name: "Kimi K2 Thinking"},
 		{ID: "moonshot-v1-32k", Name: "Moonshot v1 32K"},
 	}
@@ -297,7 +296,7 @@ func TestOnboardingUI_OpenAICodexSkipsAPIKeyStep(t *testing.T) {
 }
 
 func TestFilterModelOptions_OpenRouterMatchesProviderAndModel(t *testing.T) {
-	options := []llm.ModelOption{
+	options := []ModelOption{
 		{ID: "openrouter/auto", Name: "OpenRouter Auto"},
 		{ID: "anthropic/claude-sonnet-4", Name: "Claude Sonnet 4"},
 		{ID: "google/gemini-2.5-flash", Name: "Gemini 2.5 Flash"},
@@ -322,12 +321,12 @@ func TestOnboardingUI_OpenRouterModelSearchFiltersResults(t *testing.T) {
 		LLMModel:    "openrouter/auto",
 	})
 	ui.step = stepLLMModel
-	ui.allModelOptions = []llm.ModelOption{
+	ui.allModelOptions = []ModelOption{
 		{ID: "openrouter/auto", Name: "OpenRouter Auto"},
 		{ID: "anthropic/claude-sonnet-4", Name: "Claude Sonnet 4"},
 		{ID: "google/gemini-2.5-flash", Name: "Gemini 2.5 Flash"},
 	}
-	ui.modelOptions = append([]llm.ModelOption(nil), ui.allModelOptions...)
+	ui.modelOptions = append([]ModelOption(nil), ui.allModelOptions...)
 
 	_, _, err := ui.HandleKey(keyEvent{code: keyRune, r: 'a'})
 	if err != nil {
@@ -346,7 +345,7 @@ func TestOnboardingUI_OpenRouterModelSearchFiltersResults(t *testing.T) {
 }
 
 func TestFilterModelOptions_KiloMatchesProviderAndModel(t *testing.T) {
-	options := []llm.ModelOption{
+	options := []ModelOption{
 		{ID: "gpt-5.4", Name: "GPT-5.4 · openai"},
 		{ID: "claude-sonnet-4-6", Name: "Claude Sonnet 4.6 · anthropic"},
 		{ID: "gemini-2.5-pro", Name: "Gemini 2.5 Pro · google"},
@@ -371,12 +370,12 @@ func TestOnboardingUI_KiloModelSearchFiltersResults(t *testing.T) {
 		LLMModel:    "gpt-5.4",
 	})
 	ui.step = stepLLMModel
-	ui.allModelOptions = []llm.ModelOption{
+	ui.allModelOptions = []ModelOption{
 		{ID: "gpt-5.4", Name: "GPT-5.4 · openai"},
 		{ID: "claude-sonnet-4-6", Name: "Claude Sonnet 4.6 · anthropic"},
 		{ID: "gemini-2.5-pro", Name: "Gemini 2.5 Pro · google"},
 	}
-	ui.modelOptions = append([]llm.ModelOption(nil), ui.allModelOptions...)
+	ui.modelOptions = append([]ModelOption(nil), ui.allModelOptions...)
 
 	_, _, err := ui.HandleKey(keyEvent{code: keyRune, r: 'g'})
 	if err != nil {
@@ -395,7 +394,7 @@ func TestOnboardingUI_KiloModelSearchFiltersResults(t *testing.T) {
 }
 
 func TestFilterModelOptions_VisionOnly(t *testing.T) {
-	options := []llm.ModelOption{
+	options := []ModelOption{
 		{ID: "kimi-k2-thinking", Name: "Kimi K2 Thinking"},
 		{ID: "moonshot-v1-vision", Name: "Moonshot Vision", SupportsImageInput: true},
 	}
@@ -412,11 +411,11 @@ func TestOnboardingUI_ModelVisionToggleFiltersResults(t *testing.T) {
 		LLMModel:    "openai/gpt-5.4",
 	})
 	ui.step = stepLLMModel
-	ui.allModelOptions = []llm.ModelOption{
+	ui.allModelOptions = []ModelOption{
 		{ID: "zai/glm-5-turbo", Name: "GLM-5 Turbo"},
 		{ID: "openai/gpt-5.4", Name: "GPT-5.4", SupportsImageInput: true},
 	}
-	ui.modelOptions = append([]llm.ModelOption(nil), ui.allModelOptions...)
+	ui.modelOptions = append([]ModelOption(nil), ui.allModelOptions...)
 
 	_, _, err := ui.HandleKey(keyEvent{code: keyRight})
 	if err != nil {
@@ -436,11 +435,11 @@ func TestOnboardingUI_ModelCapabilityCycleFiltersToolsAndFree(t *testing.T) {
 		LLMModel:    "openrouter/auto",
 	})
 	ui.step = stepLLMModel
-	ui.allModelOptions = []llm.ModelOption{
+	ui.allModelOptions = []ModelOption{
 		{ID: "anthropic/claude-sonnet-4", Name: "Claude Sonnet 4", SupportsImageInput: true, SupportsTools: true},
 		{ID: "meta-llama/llama-free", Name: "Llama Free", IsFree: true},
 	}
-	ui.modelOptions = append([]llm.ModelOption(nil), ui.allModelOptions...)
+	ui.modelOptions = append([]ModelOption(nil), ui.allModelOptions...)
 
 	_, _, err := ui.HandleKey(keyEvent{code: keyRight})
 	if err != nil {

@@ -6,7 +6,6 @@ import (
 
 	"github.com/kocar/aurelia/internal/config"
 	"github.com/kocar/aurelia/internal/runtime"
-	"github.com/kocar/aurelia/pkg/llm"
 )
 
 func (u *onboardingUI) View(resolver *runtime.PathResolver) string {
@@ -344,7 +343,7 @@ func (u *onboardingUI) consumePendingAction() string {
 
 func (u *onboardingUI) refreshModelOptions() {
 	options, source := resolveModelOptions(u.cfg)
-	u.allModelOptions = append([]llm.ModelOption(nil), options...)
+	u.allModelOptions = append([]ModelOption(nil), options...)
 	u.modelSource = source
 	u.applyModelFilter()
 }
@@ -416,7 +415,7 @@ func renderMenu(options []string, selected int) string {
 	return b.String()
 }
 
-func renderModelMenu(options []llm.ModelOption, selected int) string {
+func renderModelMenu(options []ModelOption, selected int) string {
 	if len(options) == 0 {
 		return "  No models available.\n"
 	}

@@ -5,10 +5,42 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/kocar/aurelia/internal/runtime"
-	"github.com/kocar/aurelia/pkg/llm"
 )
+
+// normalizeProvider returns a canonical lowercase provider name.
+// Duplicated from cmd/aurelia to keep internal/config free of pkg/llm.
+func normalizeProvider(provider string) string {
+	normalized := strings.TrimSpace(strings.ToLower(provider))
+	if normalized == "" {
+		return "kimi"
+	}
+	return normalized
+}
+
+// defaultModelForProvider returns the default model for the given provider.
+func defaultModelForProvider(provider string) string {
+	switch normalizeProvider(provider) {
+	case "anthropic":
+		return "claude-sonnet-4-6"
+	case "google":
+		return "gemini-2.5-pro"
+	case "kilo":
+		return "openai/gpt-5.4"
+	case "openrouter":
+		return "openrouter/auto"
+	case "zai":
+		return "glm-5"
+	case "alibaba":
+		return "qwen3-coder-plus"
+	case "openai":
+		return "gpt-5.4"
+	default:
+		return "kimi-k2-thinking"
+	}
+}
 
 const (
 	defaultMaxIterations    = 500
@@ -85,7 +117,7 @@ type EditableConfig struct {
 }
 
 func (c EditableConfig) LLMAPIKey(provider string) string {
-	switch llm.NormalizeProvider(provider) {
+	switch normalizeProvider(provider) {
 	case "anthropic":
 		return c.AnthropicAPIKey
 	case "google":
@@ -106,7 +138,7 @@ func (c EditableConfig) LLMAPIKey(provider string) string {
 }
 
 func (c *EditableConfig) SetLLMAPIKey(provider, value string) {
-	switch llm.NormalizeProvider(provider) {
+	switch normalizeProvider(provider) {
 	case "anthropic":
 		c.AnthropicAPIKey = value
 	case "google":
@@ -167,7 +199,7 @@ func Load(r *runtime.PathResolver) (*AppConfig, error) {
 func defaultFileConfig(r *runtime.PathResolver) fileConfig {
 	return fileConfig{
 		LLMProvider:            defaultLLMProvider,
-		LLMModel:               llm.DefaultModelForProvider(defaultLLMProvider),
+		LLMModel:               defaultModelForProvider(defaultLLMProvider),
 		OpenAIAuthMode:         "api_key",
 		STTProvider:            defaultSTTProvider,
 		TelegramAllowedUserIDs: []int64{},
@@ -182,7 +214,7 @@ func defaultFileConfig(r *runtime.PathResolver) fileConfig {
 func DefaultEditableConfig() EditableConfig {
 	return EditableConfig{
 		LLMProvider:            defaultLLMProvider,
-		LLMModel:               llm.DefaultModelForProvider(defaultLLMProvider),
+		LLMModel:               defaultModelForProvider(defaultLLMProvider),
 		OpenAIAuthMode:         "api_key",
 		STTProvider:            defaultSTTProvider,
 		TelegramAllowedUserIDs: []int64{},
@@ -256,7 +288,7 @@ func normalizeFileConfig(cfg fileConfig, r *runtime.PathResolver) fileConfig {
 		cfg.LLMProvider = defaults.LLMProvider
 	}
 	if cfg.LLMModel == "" {
-		cfg.LLMModel = llm.DefaultModelForProvider(cfg.LLMProvider)
+		cfg.LLMModel = defaultModelForProvider(cfg.LLMProvider)
 	}
 	if cfg.OpenAIAuthMode == "" {
 		cfg.OpenAIAuthMode = defaults.OpenAIAuthMode
@@ -320,6 +352,10 @@ func toAppConfig(cfg fileConfig) *AppConfig {
 	}
 }
 
+func defaultLLMModelForProvider(provider string) string {
+	return defaultModelForProvider(provider)
+}
+
 func sameFileConfig(a, b fileConfig) bool {
 	if a.TelegramBotToken != b.TelegramBotToken ||
 		a.LLMProvider != b.LLMProvider ||
@@ -352,6 +388,3 @@ func sameFileConfig(a, b fileConfig) bool {
 	return true
 }
 
-func defaultLLMModelForProvider(provider string) string {
-	return llm.DefaultModelForProvider(provider)
-}

@@ -8,7 +8,6 @@ import (
 
 	"github.com/kocar/aurelia/internal/config"
 	"github.com/kocar/aurelia/internal/runtime"
-	"github.com/kocar/aurelia/pkg/llm"
 )
 
 func runOpenAIAuthLogin(stdin io.Reader, stdout io.Writer) error {
@@ -20,7 +19,7 @@ func runOpenAIAuthLogin(stdin io.Reader, stdout io.Writer) error {
 		return fmt.Errorf("bootstrap instance directory: %w", err)
 	}
 
-	if err := llm.EnsureCodexCLIAvailable(); err != nil {
+	if err := ensureCodexCLIAvailable(); err != nil {
 		return fmt.Errorf("%w; install Codex CLI first", err)
 	}
 

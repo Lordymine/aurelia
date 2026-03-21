@@ -5,34 +5,33 @@ import (
 	"strings"
 
 	"github.com/kocar/aurelia/internal/config"
-	"github.com/kocar/aurelia/pkg/llm"
 )
 
-func loadModelOptions(cfg config.EditableConfig) []llm.ModelOption {
+func loadModelOptions(cfg config.EditableConfig) []ModelOption {
 	options, _ := llmModelCatalog(context.Background(), cfg.LLMProvider, modelCatalogCredentials(cfg))
 	if len(options) != 0 {
 		return options
 	}
-	return llm.FallbackModels(cfg.LLMProvider)
+	return fallbackModelList(cfg.LLMProvider)
 }
 
-func resolveModelOptions(cfg config.EditableConfig) ([]llm.ModelOption, string) {
+func resolveModelOptions(cfg config.EditableConfig) ([]ModelOption, string) {
 	options, err := llmModelCatalog(context.Background(), cfg.LLMProvider, modelCatalogCredentials(cfg))
 	if err == nil && len(options) != 0 {
 		return options, "provider catalog"
 	}
 
-	fallback := llm.FallbackModels(cfg.LLMProvider)
+	fallback := fallbackModelList(cfg.LLMProvider)
 	if len(fallback) != 0 {
 		return fallback, "curated fallback"
 	}
 	return nil, "no catalog available"
 }
 
-func filterModelOptions(cfg config.EditableConfig, options []llm.ModelOption, filter string, capability modelCapabilityFilter) []llm.ModelOption {
+func filterModelOptions(cfg config.EditableConfig, options []ModelOption, filter string, capability modelCapabilityFilter) []ModelOption {
 	filter = strings.ToLower(strings.TrimSpace(filter))
 
-	filtered := make([]llm.ModelOption, 0, len(options))
+	filtered := make([]ModelOption, 0, len(options))
 	for _, option := range options {
 		if !matchesCapabilityFilter(option, capability) {
 			continue
@@ -45,7 +44,7 @@ func filterModelOptions(cfg config.EditableConfig, options []llm.ModelOption, fi
 	return filtered
 }
 
-func matchesModelFilter(option llm.ModelOption, filter string) bool {
+func matchesModelFilter(option ModelOption, filter string) bool {
 	candidates := []string{
 		strings.ToLower(option.ID),
 		strings.ToLower(option.Name),
@@ -68,7 +67,7 @@ func openRouterProviderName(modelID string) string {
 	return prefix
 }
 
-func selectedModelIndex(options []llm.ModelOption, current string) int {
+func selectedModelIndex(options []ModelOption, current string) int {
 	for i, option := range options {
 		if option.ID == current {
 			return i
@@ -77,8 +76,8 @@ func selectedModelIndex(options []llm.ModelOption, current string) int {
 	return 0
 }
 
-func modelCatalogCredentials(cfg config.EditableConfig) llm.ModelCatalogCredentials {
-	return llm.ModelCatalogCredentials{
+func modelCatalogCredentials(cfg config.EditableConfig) ModelCatalogCredentials {
+	return ModelCatalogCredentials{
 		AnthropicAPIKey:  cfg.AnthropicAPIKey,
 		GoogleAPIKey:     cfg.GoogleAPIKey,
 		KiloAPIKey:       cfg.KiloAPIKey,
@@ -91,7 +90,7 @@ func modelCatalogCredentials(cfg config.EditableConfig) llm.ModelCatalogCredenti
 	}
 }
 
-func matchesCapabilityFilter(option llm.ModelOption, capability modelCapabilityFilter) bool {
+func matchesCapabilityFilter(option ModelOption, capability modelCapabilityFilter) bool {
 	switch capability {
 	case modelCapabilityVision:
 		return option.SupportsImageInput

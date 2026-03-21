@@ -10,7 +10,6 @@ import (
 
 	"github.com/kocar/aurelia/internal/config"
 	"github.com/kocar/aurelia/internal/runtime"
-	"github.com/kocar/aurelia/pkg/llm"
 )
 
 func nextOnboardStep(cfg config.EditableConfig, step onboardStep) onboardStep {
@@ -96,9 +95,9 @@ func wrapIndex(index, size int) int {
 	return index
 }
 
-func selectedProviderIndex(provider string) int {
+func selectedProviderIndex(p string) int {
 	for i, option := range llmProviderChoices() {
-		if option == llm.NormalizeProvider(provider) {
+		if option == normalizeProvider(p) {
 			return i
 		}
 	}
@@ -106,29 +105,29 @@ func selectedProviderIndex(provider string) int {
 }
 
 func llmProviderChoices() []string {
-	return llm.ProviderChoices()
+	return providerChoices()
 }
 
 func llmProviderLabels() []string {
-	return llm.ProviderLabels()
+	return providerLabels()
 }
 
-func llmKeyLabel(provider string) string {
-	spec, ok := llm.Provider(provider)
+func llmKeyLabel(p string) string {
+	spec, ok := provider(p)
 	if !ok {
-		spec, _ = llm.Provider("kimi")
+		spec, _ = provider("kimi")
 	}
 	return spec.APIKeyLabel
 }
 
 func usesOpenAICodex(cfg config.EditableConfig) bool {
-	return llm.NormalizeProvider(cfg.LLMProvider) == "openai" && cfg.OpenAIAuthMode == "codex"
+	return normalizeProvider(cfg.LLMProvider) == "openai" && cfg.OpenAIAuthMode == "codex"
 }
 
-func llmKeyHelp(provider string) string {
-	spec, ok := llm.Provider(provider)
+func llmKeyHelp(p string) string {
+	spec, ok := provider(p)
 	if !ok {
-		spec, _ = llm.Provider("kimi")
+		spec, _ = provider("kimi")
 	}
 	return spec.APIKeyHelp
 }

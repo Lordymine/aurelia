@@ -8,7 +8,6 @@ import (
 
 	"github.com/kocar/aurelia/internal/config"
 	"github.com/kocar/aurelia/internal/runtime"
-	"github.com/kocar/aurelia/pkg/llm"
 	"golang.org/x/term"
 )
 
@@ -60,8 +59,8 @@ type onboardingUI struct {
 	input           string
 	message         string
 	modelSource     string
-	allModelOptions []llm.ModelOption
-	modelOptions    []llm.ModelOption
+	allModelOptions []ModelOption
+	modelOptions    []ModelOption
 	modelFilter     string
 	modelCapability modelCapabilityFilter
 	reviewOptions   []string
@@ -77,7 +76,7 @@ const (
 	modelCapabilityFree
 )
 
-var llmModelCatalog = llm.ListModels
+var llmModelCatalog = listModels
 
 func runOnboard(stdin io.Reader, stdout io.Writer) error {
 	resolver, err := runtime.New()
@@ -231,8 +230,8 @@ func newOnboardingUI(cfg config.EditableConfig) *onboardingUI {
 	modelOptions, modelSource := resolveModelOptions(cfg)
 	return &onboardingUI{
 		cfg:             cfg,
-		allModelOptions: append([]llm.ModelOption(nil), modelOptions...),
-		modelOptions:    append([]llm.ModelOption(nil), modelOptions...),
+		allModelOptions: append([]ModelOption(nil), modelOptions...),
+		modelOptions:    append([]ModelOption(nil), modelOptions...),
 		modelSource:     modelSource,
 		step:            stepLLMProvider,
 		reviewOptions:   []string{"Save config", "Back", "Cancel"},
