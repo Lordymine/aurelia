@@ -128,6 +128,9 @@ func (bc *BotController) buildSystemPrompt(userText string, agent *agents.Agent)
 
 // processBridgeEvents reads bridge events and sends responses to the Telegram chat.
 func (bc *BotController) processBridgeEvents(c telebot.Context, ch <-chan bridge.Event, userText string) error {
+	progress := newProgressReporter(bc.bot, c.Chat())
+	defer progress.Delete()
+
 	var assistantText strings.Builder
 
 	for ev := range ch {
@@ -137,7 +140,7 @@ func (bc *BotController) processBridgeEvents(c telebot.Context, ch <-chan bridge
 			if toolName == "" {
 				toolName = "tool"
 			}
-			log.Printf("Bridge tool_use: %s", toolName)
+			progress.ReportTool(toolName)
 
 		case "assistant":
 			content := ev.Text
