@@ -99,9 +99,9 @@ func (bc *BotController) processInput(c telebot.Context, text string, parts [][]
 		}
 	}
 
-	// NOTE: Session resume disabled — requires long-lived Bridge process.
-	// Each bridge.Execute spawns a fresh process, so session IDs are not
-	// resumable across requests. Memory injection provides context instead.
+	// NOTE: Session resume is now possible — Bridge is long-lived.
+	// TODO: store session_id from result events and pass via Options.Resume
+	// to enable conversation continuity in Claude Code.
 
 	// Apply chat-level cwd if no agent overrides it
 	if req.Options.Cwd == "" {

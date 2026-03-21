@@ -4,7 +4,8 @@ package bridge
 // Not all fields are populated for every event type — only the fields relevant
 // to the event's Type are set.
 type Event struct {
-	Type string `json:"event"`
+	Type      string `json:"event"`
+	RequestID string `json:"request_id,omitempty"`
 
 	// system event
 	SessionID string   `json:"session_id,omitempty"`
@@ -28,5 +29,5 @@ type Event struct {
 
 // IsTerminal returns true if the event signals the end of a request stream.
 func (e Event) IsTerminal() bool {
-	return e.Type == "result" || e.Type == "error"
+	return e.Type == "result" || e.Type == "error" || e.Type == "pong"
 }

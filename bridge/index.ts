@@ -23,11 +23,13 @@ interface RequestOptions {
 interface Request {
   command: string;
   prompt: string;
+  request_id?: string;
   options?: RequestOptions;
 }
 
 interface OutEvent {
   event: string;
+  request_id?: string;
   [key: string]: unknown;
 }
 
@@ -85,15 +87,18 @@ function extractText(content: unknown): string {
 // ── Handle a single query command ────────────────────────────────────────────
 
 async function handleQuery(req: Request): Promise<void> {
+  const reqId = req.request_id || "";
+  const emitReq = (obj: OutEvent) => emit({ ...obj, request_id: reqId });
+
   const sdkOptions = buildSDKOptions(req.options);
 
-  log(`query start — model=${sdkOptions.model ?? "default"} prompt="${req.prompt.slice(0, 80)}..."`);
+  log(`query start — rid=${reqId} model=${sdkOptions.model ?? "default"} prompt="${req.prompt.slice(0, 80)}..."`);
 
   const timeoutMs = 10 * 60 * 1000;
   const timeout = setTimeout(() => {
-    log("query timeout — no result after 10 minutes");
-    emit({ event: "error", message: "query timeout: no result after 10 minutes" });
-    process.exit(1);
+    log(`query timeout — rid=${reqId} no result after 10 minutes`);
+    emitReq({ event: "error", message: "query timeout: no result after 10 minutes" });
+    // Don't exit — just emit error and let the process continue.
   }, timeoutMs);
 
   try {
@@ -109,7 +114,7 @@ async function handleQuery(req: Request): Promise<void> {
       switch (msgType) {
         // ── System init ──────────────────────────────────────────────
         case "system": {
-          emit({
+          emitReq({
             event: "system",
             session_id: msg.session_id as string,
             tools: msg.tools as string[],
@@ -124,11 +129,11 @@ async function handleQuery(req: Request): Promise<void> {
           if (inner?.content && Array.isArray(inner.content)) {
             const text = extractText(inner.content);
             if (text) {
-              emit({ event: "assistant", text });
+              emitReq({ event: "assistant", text });
             }
             for (const block of inner.content as Record<string, unknown>[]) {
               if (block.type === "tool_use") {
-                emit({
+                emitReq({
                   event: "tool_use",
                   id: block.id as string,
                   name: block.name as string,
@@ -142,7 +147,7 @@ async function handleQuery(req: Request): Promise<void> {
 
         // ── Tool use summary ─────────────────────────────────────────
         case "tool_use_summary": {
-          emit({
+          emitReq({
             event: "tool_result",
             content: msg.summary as string,
           });
@@ -153,7 +158,7 @@ async function handleQuery(req: Request): Promise<void> {
         case "result": {
           const subtype = msg.subtype as string | undefined;
           if (subtype === "success") {
-            emit({
+            emitReq({
               event: "result",
               content: msg.result as string,
               cost_usd: msg.total_cost_usd as number,
@@ -164,7 +169,7 @@ async function handleQuery(req: Request): Promise<void> {
           } else {
             // error_max_turns, error_during_execution, etc.
             const errors = msg.errors as string[] | undefined;
-            emit({
+            emitReq({
               event: "error",
               message: errors?.join("; ") ?? `result error: ${subtype}`,
               subtype: subtype ?? "unknown",
@@ -182,8 +187,8 @@ async function handleQuery(req: Request): Promise<void> {
     }
   } catch (err: unknown) {
     const errMsg = err instanceof Error ? err.message : String(err);
-    log(`query error: ${errMsg}`);
-    emit({ event: "error", message: errMsg });
+    log(`query error: rid=${reqId} ${errMsg}`);
+    emitReq({ event: "error", message: errMsg });
   } finally {
     clearTimeout(timeout);
   }
@@ -202,14 +207,16 @@ async function handleRequest(line: string): Promise<void> {
   }
 
   if (!req.command) {
-    emit({ event: "error", message: "missing 'command' field" });
+    emit({ event: "error", request_id: req.request_id || "", message: "missing 'command' field" });
     return;
   }
+
+  const reqId = req.request_id || "";
 
   switch (req.command) {
     case "query": {
       if (!req.prompt) {
-        emit({ event: "error", message: "missing 'prompt' field for query command" });
+        emit({ event: "error", request_id: reqId, message: "missing 'prompt' field for query command" });
         return;
       }
       await handleQuery(req);
@@ -217,12 +224,12 @@ async function handleRequest(line: string): Promise<void> {
     }
 
     case "ping": {
-      emit({ event: "pong" });
+      emit({ event: "pong", request_id: reqId });
       break;
     }
 
     default: {
-      emit({ event: "error", message: `unknown command: ${req.command}` });
+      emit({ event: "error", request_id: reqId, message: `unknown command: ${req.command}` });
     }
   }
 }

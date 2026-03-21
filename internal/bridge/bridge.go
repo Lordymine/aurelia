@@ -2,105 +2,273 @@ package bridge
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os/exec"
+	"sync"
+	"sync/atomic"
 )
 
-// Bridge spawns the TypeScript bridge process and communicates via stdin/stdout.
-// Each Execute call spawns a fresh process — the bridge is not long-lived from
-// Go's perspective in v1.
+// Bridge manages a long-lived TypeScript bridge process and communicates via
+// stdin/stdout using NDJSON. Multiple requests are multiplexed over a single
+// process using request_id correlation.
 type Bridge struct {
 	bridgeDir string // directory containing bridge/index.ts
 
 	// command and args override the default "npx tsx index.ts" for testing.
 	command string
 	args    []string
+
+	mu      sync.Mutex // guards stdin writes and process lifecycle
+	cmd     *exec.Cmd
+	stdin   io.WriteCloser
+	scanner *bufio.Scanner
+
+	// pending maps request_id → channel for routing events.
+	pending   map[string]chan Event
+	pendingMu sync.Mutex
+
+	started  bool
+	stopping bool
+
+	// reqCounter generates unique request IDs.
+	reqCounter atomic.Uint64
+
+	// done is closed when the reader goroutine exits.
+	done chan struct{}
 }
 
-// New creates a Bridge that will spawn processes in bridgeDir.
+// New creates a Bridge that will spawn a long-lived process in bridgeDir.
 func New(bridgeDir string) *Bridge {
 	return &Bridge{
 		bridgeDir: bridgeDir,
 		command:   "npx",
 		args:      []string{"tsx", "index.ts"},
+		pending:   make(map[string]chan Event),
 	}
 }
 
-// Execute sends a request to a freshly spawned Bridge process and streams
-// parsed NDJSON events back through the returned channel. The channel is
-// closed when the process exits or the context is cancelled.
+// Start launches the bridge process. Safe to call multiple times — no-op if
+// already running.
+func (b *Bridge) Start() error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.startLocked()
+}
+
+func (b *Bridge) startLocked() error {
+	if b.started {
+		return nil
+	}
+
+	cmd := exec.Command(b.command, b.args...)
+	cmd.Dir = b.bridgeDir
+
+	stdinPipe, err := cmd.StdinPipe()
+	if err != nil {
+		return fmt.Errorf("bridge: stdin pipe: %w", err)
+	}
+
+	stdoutPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("bridge: stdout pipe: %w", err)
+	}
+
+	// Stderr goes to parent stderr for debugging.
+	cmd.Stderr = nil // inherits parent stderr
+
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("bridge: start process: %w", err)
+	}
+
+	b.cmd = cmd
+	b.stdin = stdinPipe
+	b.scanner = bufio.NewScanner(stdoutPipe)
+	b.scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	b.started = true
+	b.stopping = false
+	b.done = make(chan struct{})
+
+	go b.readLoop()
+
+	return nil
+}
+
+// readLoop runs in a goroutine, reading stdout and routing events to pending
+// request channels. When the process exits, all pending channels are closed.
+func (b *Bridge) readLoop() {
+	defer close(b.done)
+
+	for b.scanner.Scan() {
+		line := b.scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+
+		var ev Event
+		if err := json.Unmarshal(line, &ev); err != nil {
+			// Can't route without request_id, skip.
+			continue
+		}
+
+		rid := ev.RequestID
+
+		b.pendingMu.Lock()
+		ch, ok := b.pending[rid]
+		b.pendingMu.Unlock()
+
+		if !ok {
+			// No listener for this request_id — drop event.
+			continue
+		}
+
+		// Non-blocking send — channel has buffer.
+		select {
+		case ch <- ev:
+		default:
+			// Buffer full — drop event rather than block reader.
+		}
+
+		if ev.IsTerminal() {
+			b.pendingMu.Lock()
+			delete(b.pending, rid)
+			b.pendingMu.Unlock()
+			close(ch)
+		}
+	}
+
+	// Process exited or stdout closed — close all pending channels.
+	b.pendingMu.Lock()
+	for rid, ch := range b.pending {
+		close(ch)
+		delete(b.pending, rid)
+	}
+	b.pendingMu.Unlock()
+
+	b.mu.Lock()
+	b.started = false
+	b.cmd = nil
+	b.mu.Unlock()
+}
+
+// Stop kills the bridge process. Safe to call multiple times.
+func (b *Bridge) Stop() {
+	b.mu.Lock()
+	if !b.started || b.stopping {
+		b.mu.Unlock()
+		return
+	}
+	b.stopping = true
+	stdin := b.stdin
+	cmd := b.cmd
+	done := b.done
+	b.mu.Unlock()
+
+	// Close stdin — the TS bridge exits on stdin close.
+	if stdin != nil {
+		_ = stdin.Close()
+	}
+
+	// Wait for reader goroutine to finish (it will close all pending channels).
+	if done != nil {
+		<-done
+	}
+
+	// Ensure process is reaped.
+	if cmd != nil {
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+		_ = cmd.Wait()
+	}
+
+	// Reset state so the bridge can be restarted.
+	b.mu.Lock()
+	b.started = false
+	b.stopping = false
+	b.cmd = nil
+	b.stdin = nil
+	b.scanner = nil
+	b.pendingMu.Lock()
+	b.pending = make(map[string]chan Event)
+	b.pendingMu.Unlock()
+	b.mu.Unlock()
+}
+
+// Execute sends a request to the long-lived Bridge process and returns a
+// channel of events for that request. The process stays alive after the
+// request completes.
 func (b *Bridge) Execute(ctx context.Context, req Request) (<-chan Event, error) {
+	b.mu.Lock()
+	if !b.started {
+		if err := b.startLocked(); err != nil {
+			b.mu.Unlock()
+			return nil, err
+		}
+	}
+	b.mu.Unlock()
+
+	// Assign request_id if not set.
+	if req.RequestID == "" {
+		req.RequestID = fmt.Sprintf("req-%d", b.reqCounter.Add(1))
+	}
+
 	payload, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("bridge: marshal request: %w", err)
 	}
 
-	cmd := exec.CommandContext(ctx, b.command, b.args...)
-	cmd.Dir = b.bridgeDir
-
-	stdin, err := cmd.StdinPipe()
-	if err != nil {
-		return nil, fmt.Errorf("bridge: stdin pipe: %w", err)
-	}
-
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, fmt.Errorf("bridge: stdout pipe: %w", err)
-	}
-
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-
-	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("bridge: start process: %w", err)
-	}
-
-	// Write request and close stdin so the bridge knows no more input is coming.
-	if _, err := stdin.Write(append(payload, '\n')); err != nil {
-		_ = cmd.Process.Kill()
-		return nil, fmt.Errorf("bridge: write request: %w", err)
-	}
-	stdin.Close()
-
 	ch := make(chan Event, 16)
 
+	b.pendingMu.Lock()
+	b.pending[req.RequestID] = ch
+	b.pendingMu.Unlock()
+
+	// Write request to stdin (don't close stdin!).
+	b.mu.Lock()
+	if !b.started {
+		b.mu.Unlock()
+		b.pendingMu.Lock()
+		delete(b.pending, req.RequestID)
+		b.pendingMu.Unlock()
+		close(ch)
+		return nil, fmt.Errorf("bridge: process died before write")
+	}
+	_, err = b.stdin.Write(append(payload, '\n'))
+	b.mu.Unlock()
+
+	if err != nil {
+		b.pendingMu.Lock()
+		delete(b.pending, req.RequestID)
+		b.pendingMu.Unlock()
+		close(ch)
+		return nil, fmt.Errorf("bridge: write request: %w", err)
+	}
+
+	// Wrap channel with context cancellation.
+	out := make(chan Event, 16)
 	go func() {
-		defer close(ch)
-		defer cmd.Wait() //nolint:errcheck // exit code checked via events
-
-		scanner := bufio.NewScanner(stdout)
-		// Allow large lines (some tool results can be big).
-		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-
-		for scanner.Scan() {
-			line := scanner.Bytes()
-			if len(line) == 0 {
-				continue
-			}
-
-			var ev Event
-			if err := json.Unmarshal(line, &ev); err != nil {
-				// Emit a synthetic error event for unparseable lines.
+		defer close(out)
+		for {
+			select {
+			case ev, ok := <-ch:
+				if !ok {
+					return
+				}
 				select {
-				case ch <- Event{Type: "error", Message: fmt.Sprintf("bridge: unmarshal event: %v (line: %s)", err, line)}:
+				case out <- ev:
 				case <-ctx.Done():
 					return
 				}
-				continue
-			}
-
-			select {
-			case ch <- ev:
 			case <-ctx.Done():
 				return
 			}
 		}
 	}()
 
-	return ch, nil
+	return out, nil
 }
 
 // ExecuteSync sends a request and blocks until a terminal event (result or error)

@@ -4,14 +4,44 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"runtime"
 	"testing"
 	"time"
 )
 
-// newMockBridge creates a Bridge that uses `node mock.js` and writes the given
-// JavaScript body as mock.js in dir. The JS code should read from stdin and
-// write NDJSON to stdout to simulate the bridge protocol.
+// longLivedMockJS returns JavaScript that acts as a long-lived bridge process:
+// reads multiple lines from stdin, responds to each with events including request_id.
+const longLivedMockJS = `
+const readline = require('readline');
+const rl = readline.createInterface({ input: process.stdin, terminal: false });
+
+rl.on('line', (line) => {
+    let req;
+    try {
+        req = JSON.parse(line);
+    } catch(e) {
+        process.stdout.write(JSON.stringify({event:"error",message:"invalid json"}) + "\n");
+        return;
+    }
+
+    const rid = req.request_id || "";
+
+    if (req.command === "ping") {
+        process.stdout.write(JSON.stringify({event:"pong",request_id:rid}) + "\n");
+    } else if (req.command === "query") {
+        process.stdout.write(JSON.stringify({event:"system",request_id:rid,session_id:"test-123",tools:["Read"],model:"claude-3"}) + "\n");
+        process.stdout.write(JSON.stringify({event:"assistant",request_id:rid,text:"hello world"}) + "\n");
+        process.stdout.write(JSON.stringify({event:"result",request_id:rid,content:"done",cost_usd:0.01,session_id:"test-123",duration_ms:100,num_turns:1}) + "\n");
+    } else {
+        process.stdout.write(JSON.stringify({event:"error",request_id:rid,message:"unknown command: " + req.command}) + "\n");
+    }
+});
+
+rl.on('close', () => {
+    process.exit(0);
+});
+`
+
+// newMockBridge creates a long-lived Bridge that uses `node mock.js`.
 func newMockBridge(t *testing.T, dir string, jsBody string) *Bridge {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, "mock.js"), []byte(jsBody), 0644); err != nil {
@@ -20,30 +50,13 @@ func newMockBridge(t *testing.T, dir string, jsBody string) *Bridge {
 	b := New(dir)
 	b.command = "node"
 	b.args = []string{"mock.js"}
+	t.Cleanup(func() { b.Stop() })
 	return b
-}
-
-// mockReadAndRespond wraps JS code so it reads one line from stdin before
-// executing the response logic. This ensures the process waits for Go to
-// write the request before responding.
-func mockReadAndRespond(responseJS string) string {
-	return `
-process.stdin.resume();
-process.stdin.once('data', function() {
-    ` + responseJS + `
-    process.stdin.destroy();
-});
-`
 }
 
 func TestBridge_Execute_ParsesEvents(t *testing.T) {
 	dir := t.TempDir()
-
-	b := newMockBridge(t, dir, mockReadAndRespond(`
-    process.stdout.write(JSON.stringify({event:"system",session_id:"test-123",tools:["Read"],model:"claude-3"}) + "\n");
-    process.stdout.write(JSON.stringify({event:"assistant",text:"hello world"}) + "\n");
-    process.stdout.write(JSON.stringify({event:"result",content:"done",cost_usd:0.01,session_id:"test-123",duration_ms:100,num_turns:1}) + "\n");
-`))
+	b := newMockBridge(t, dir, longLivedMockJS)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -101,12 +114,7 @@ func TestBridge_Execute_ParsesEvents(t *testing.T) {
 
 func TestBridge_ExecuteSync_ReturnsResult(t *testing.T) {
 	dir := t.TempDir()
-
-	b := newMockBridge(t, dir, mockReadAndRespond(`
-    process.stdout.write(JSON.stringify({event:"system",session_id:"s1"}) + "\n");
-    process.stdout.write(JSON.stringify({event:"assistant",text:"thinking..."}) + "\n");
-    process.stdout.write(JSON.stringify({event:"result",content:"final answer",cost_usd:0.05,duration_ms:500,num_turns:3}) + "\n");
-`))
+	b := newMockBridge(t, dir, longLivedMockJS)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -118,20 +126,28 @@ func TestBridge_ExecuteSync_ReturnsResult(t *testing.T) {
 	if ev.Type != "result" {
 		t.Errorf("Type = %q, want %q", ev.Type, "result")
 	}
-	if ev.Content != "final answer" {
-		t.Errorf("Content = %q, want %q", ev.Content, "final answer")
+	if ev.Content != "done" {
+		t.Errorf("Content = %q, want %q", ev.Content, "done")
 	}
-	if ev.CostUSD != 0.05 {
-		t.Errorf("CostUSD = %f, want %f", ev.CostUSD, 0.05)
+	if ev.CostUSD != 0.01 {
+		t.Errorf("CostUSD = %f, want %f", ev.CostUSD, 0.01)
 	}
 }
 
 func TestBridge_Execute_ErrorEvent(t *testing.T) {
 	dir := t.TempDir()
 
-	b := newMockBridge(t, dir, mockReadAndRespond(`
-    process.stdout.write(JSON.stringify({event:"error",message:"something went wrong"}) + "\n");
-`))
+	errorMockJS := `
+const readline = require('readline');
+const rl = readline.createInterface({ input: process.stdin, terminal: false });
+rl.on('line', (line) => {
+    const req = JSON.parse(line);
+    const rid = req.request_id || "";
+    process.stdout.write(JSON.stringify({event:"error",request_id:rid,message:"something went wrong"}) + "\n");
+});
+rl.on('close', () => process.exit(0));
+`
+	b := newMockBridge(t, dir, errorMockJS)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -158,19 +174,18 @@ func TestBridge_Execute_ErrorEvent(t *testing.T) {
 }
 
 func TestBridge_Execute_ContextCancel(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("process kill semantics differ on Windows; skip for CI stability")
-	}
-
 	dir := t.TempDir()
 
-	// Script that hangs forever.
-	b := newMockBridge(t, dir, `
-process.stdin.resume();
-process.stdin.once('data', function() {
-    setTimeout(function() {}, 60000);
+	// Script that reads requests but never responds — simulates a hanging query.
+	hangMockJS := `
+const readline = require('readline');
+const rl = readline.createInterface({ input: process.stdin, terminal: false });
+rl.on('line', () => {
+    // Intentionally don't respond — simulate hang.
 });
-`)
+rl.on('close', () => process.exit(0));
+`
+	b := newMockBridge(t, dir, hangMockJS)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
@@ -193,10 +208,7 @@ process.stdin.once('data', function() {
 
 func TestBridge_Ping(t *testing.T) {
 	dir := t.TempDir()
-
-	b := newMockBridge(t, dir, mockReadAndRespond(`
-    process.stdout.write(JSON.stringify({event:"pong"}) + "\n");
-`))
+	b := newMockBridge(t, dir, longLivedMockJS)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -209,12 +221,20 @@ func TestBridge_Ping(t *testing.T) {
 func TestBridge_Execute_ToolUseEvent(t *testing.T) {
 	dir := t.TempDir()
 
-	b := newMockBridge(t, dir, mockReadAndRespond(`
-    process.stdout.write(JSON.stringify({event:"system",session_id:"s1"}) + "\n");
-    process.stdout.write(JSON.stringify({event:"tool_use",name:"Read",input:{file_path:"/tmp/test.txt"}}) + "\n");
-    process.stdout.write(JSON.stringify({event:"tool_result",content:"file contents here"}) + "\n");
-    process.stdout.write(JSON.stringify({event:"result",content:"done"}) + "\n");
-`))
+	toolMockJS := `
+const readline = require('readline');
+const rl = readline.createInterface({ input: process.stdin, terminal: false });
+rl.on('line', (line) => {
+    const req = JSON.parse(line);
+    const rid = req.request_id || "";
+    process.stdout.write(JSON.stringify({event:"system",request_id:rid,session_id:"s1"}) + "\n");
+    process.stdout.write(JSON.stringify({event:"tool_use",request_id:rid,name:"Read",input:{file_path:"/tmp/test.txt"}}) + "\n");
+    process.stdout.write(JSON.stringify({event:"tool_result",request_id:rid,content:"file contents here"}) + "\n");
+    process.stdout.write(JSON.stringify({event:"result",request_id:rid,content:"done"}) + "\n");
+});
+rl.on('close', () => process.exit(0));
+`
+	b := newMockBridge(t, dir, toolMockJS)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -257,7 +277,7 @@ func TestEvent_IsTerminal(t *testing.T) {
 		{"assistant", false},
 		{"tool_use", false},
 		{"tool_result", false},
-		{"pong", false},
+		{"pong", true},
 	}
 	for _, tt := range tests {
 		ev := Event{Type: tt.eventType}
@@ -270,9 +290,17 @@ func TestEvent_IsTerminal(t *testing.T) {
 func TestBridge_ExecuteSync_ErrorEvent(t *testing.T) {
 	dir := t.TempDir()
 
-	b := newMockBridge(t, dir, mockReadAndRespond(`
-    process.stdout.write(JSON.stringify({event:"error",message:"auth failed"}) + "\n");
-`))
+	errorMockJS := `
+const readline = require('readline');
+const rl = readline.createInterface({ input: process.stdin, terminal: false });
+rl.on('line', (line) => {
+    const req = JSON.parse(line);
+    const rid = req.request_id || "";
+    process.stdout.write(JSON.stringify({event:"error",request_id:rid,message:"auth failed"}) + "\n");
+});
+rl.on('close', () => process.exit(0));
+`
+	b := newMockBridge(t, dir, errorMockJS)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -286,5 +314,70 @@ func TestBridge_ExecuteSync_ErrorEvent(t *testing.T) {
 	}
 	if ev.Message != "auth failed" {
 		t.Errorf("Message = %q, want %q", ev.Message, "auth failed")
+	}
+}
+
+func TestBridge_LongLived_MultipleRequests(t *testing.T) {
+	dir := t.TempDir()
+	b := newMockBridge(t, dir, longLivedMockJS)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Request 1: ping
+	if err := b.Ping(ctx); err != nil {
+		t.Fatalf("Ping 1 error: %v", err)
+	}
+
+	// Request 2: query
+	ev, err := b.ExecuteSync(ctx, Request{Command: "query", Prompt: "first"})
+	if err != nil {
+		t.Fatalf("Query 1 error: %v", err)
+	}
+	if ev.Type != "result" {
+		t.Errorf("Query 1: Type = %q, want %q", ev.Type, "result")
+	}
+
+	// Request 3: another query on the SAME process
+	ev, err = b.ExecuteSync(ctx, Request{Command: "query", Prompt: "second"})
+	if err != nil {
+		t.Fatalf("Query 2 error: %v", err)
+	}
+	if ev.Type != "result" {
+		t.Errorf("Query 2: Type = %q, want %q", ev.Type, "result")
+	}
+
+	// Request 4: ping again
+	if err := b.Ping(ctx); err != nil {
+		t.Fatalf("Ping 2 error: %v", err)
+	}
+}
+
+func TestBridge_Stop_And_Restart(t *testing.T) {
+	dir := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(dir, "mock.js"), []byte(longLivedMockJS), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	b := New(dir)
+	b.command = "node"
+	b.args = []string{"mock.js"}
+	t.Cleanup(func() { b.Stop() })
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Start and use
+	if err := b.Ping(ctx); err != nil {
+		t.Fatalf("Ping 1 error: %v", err)
+	}
+
+	// Stop
+	b.Stop()
+
+	// Use again — should auto-restart
+	if err := b.Ping(ctx); err != nil {
+		t.Fatalf("Ping after restart error: %v", err)
 	}
 }

@@ -188,6 +188,9 @@ func (a *app) shutdown(ctx context.Context) {
 }
 
 func (a *app) close() {
+	if a.bridge != nil {
+		a.bridge.Stop()
+	}
 	if a.memory != nil {
 		if err := a.memory.Close(); err != nil {
 			log.Printf("Warning: failed to close memory store: %v", err)
