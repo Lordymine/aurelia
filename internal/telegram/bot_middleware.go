@@ -9,9 +9,12 @@ import (
 func (bc *BotController) whitelistMiddleware() telebot.MiddlewareFunc {
 	return func(next telebot.HandlerFunc) telebot.HandlerFunc {
 		return func(c telebot.Context) error {
-			senderID := c.Sender().ID
-			if !bc.isAllowedUser(senderID) {
-				log.Printf("blocked unauthorized user: %d\n", senderID)
+			sender := c.Sender()
+			if sender == nil {
+				return nil
+			}
+			if !bc.isAllowedUser(sender.ID) {
+				log.Printf("blocked unauthorized user: %d\n", sender.ID)
 				return nil
 			}
 			return next(c)
