@@ -146,9 +146,25 @@ func (s *Store) Inject(ctx context.Context, query string, limit int) (string, er
 	return b.String(), nil
 }
 
-// Close closes the underlying database connection.
+// Close closes the underlying database connection and the embedder if it
+// implements io.Closer (e.g. HugotEmbedder).
 func (s *Store) Close() error {
-	return s.db.Close()
+	var errs []error
+	if closer, ok := s.embedder.(interface{ Close() error }); ok {
+		if err := closer.Close(); err != nil {
+			errs = append(errs, fmt.Errorf("close embedder: %w", err))
+		}
+	}
+	if err := s.db.Close(); err != nil {
+		errs = append(errs, fmt.Errorf("close db: %w", err))
+	}
+	if len(errs) == 1 {
+		return errs[0]
+	}
+	if len(errs) > 1 {
+		return fmt.Errorf("%w; %w", errs[0], errs[1])
+	}
+	return nil
 }
 
 // serializeEmbedding converts []float32 to binary BLOB.
