@@ -104,6 +104,13 @@ func (bc *BotController) processInput(c telebot.Context, text string, parts [][]
 		req.Options.Resume = sessionID
 	}
 
+	// Apply chat-level cwd if no agent overrides it
+	if req.Options.Cwd == "" {
+		if chatCwd := bc.sessions.GetCwd(c.Chat().ID); chatCwd != "" {
+			req.Options.Cwd = chatCwd
+		}
+	}
+
 	// 4. Execute via bridge (streaming)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
