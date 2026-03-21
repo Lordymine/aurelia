@@ -99,9 +99,10 @@ func (bc *BotController) processInput(c telebot.Context, text string, parts [][]
 		}
 	}
 
-	// NOTE: Session resume is now possible — Bridge is long-lived.
-	// TODO: store session_id from result events and pass via Options.Resume
-	// to enable conversation continuity in Claude Code.
+	// Resume previous session for conversation continuity
+	if sessionID := bc.sessions.Get(c.Chat().ID); sessionID != "" {
+		req.Options.Resume = sessionID
+	}
 
 	// Apply chat-level cwd if no agent overrides it
 	if req.Options.Cwd == "" {
@@ -212,9 +213,9 @@ func (bc *BotController) processBridgeEvents(c telebot.Context, ch <-chan bridge
 			return SendError(bc.bot, c.Chat(), errMsg)
 
 		case "system":
-			// Session ID logged but not stored — resume disabled until
-			// Bridge is long-lived.
-			log.Printf("Bridge session: %s", ev.SessionID)
+			if ev.SessionID != "" {
+				bc.sessions.Set(c.Chat().ID, ev.SessionID)
+			}
 
 		default:
 			log.Printf("Bridge event (ignored): %s", ev.Type)
