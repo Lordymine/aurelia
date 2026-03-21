@@ -203,6 +203,16 @@ func (a *app) close() {
 // setProviderEnv exports provider credentials as env vars for the Bridge process.
 func setProviderEnv(cfg *config.AppConfig) {
 	provider := cfg.DefaultProvider
+	authMode := cfg.ProviderAuthMode(provider)
+
+	// Subscription mode (Anthropic Max): don't set API key, SDK uses OAuth
+	if provider == "anthropic" && authMode == "subscription" {
+		// Clear any existing key so SDK falls back to OAuth
+		os.Unsetenv("ANTHROPIC_API_KEY")
+		os.Unsetenv("ANTHROPIC_BASE_URL")
+		return
+	}
+
 	apiKey := cfg.ProviderAPIKey(provider)
 	baseURL := cfg.ProviderBaseURL(provider)
 
