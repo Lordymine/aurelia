@@ -79,6 +79,7 @@ func TestBotController_IsAllowedUser(t *testing.T) {
 	bc := &BotController{
 		config: &config.AppConfig{
 			TelegramAllowedUserIDs: []int64{42, 99},
+			Providers:              map[string]config.ProviderConfig{},
 		},
 	}
 

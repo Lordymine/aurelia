@@ -41,14 +41,14 @@ func TestRunOnboard_SavesInteractiveConfig(t *testing.T) {
 		t.Fatalf("config.Load() error = %v", err)
 	}
 
-	if cfg.LLMProvider != "kimi" {
-		t.Fatalf("LLMProvider = %q", cfg.LLMProvider)
+	if cfg.DefaultProvider != "kimi" {
+		t.Fatalf("DefaultProvider = %q", cfg.DefaultProvider)
 	}
 	if cfg.STTProvider != "groq" {
 		t.Fatalf("STTProvider = %q", cfg.STTProvider)
 	}
-	if cfg.LLMModel != "kimi-k2-thinking" {
-		t.Fatalf("LLMModel = %q", cfg.LLMModel)
+	if cfg.DefaultModel != "kimi-k2-thinking" {
+		t.Fatalf("DefaultModel = %q", cfg.DefaultModel)
 	}
 	if cfg.TelegramBotToken != "telegram-token" {
 		t.Fatalf("TelegramBotToken = %q", cfg.TelegramBotToken)
@@ -56,11 +56,11 @@ func TestRunOnboard_SavesInteractiveConfig(t *testing.T) {
 	if got, want := cfg.TelegramAllowedUserIDs, []int64{101, 202}; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
 		t.Fatalf("TelegramAllowedUserIDs = %v", got)
 	}
-	if cfg.KimiAPIKey != "kimi-key" {
-		t.Fatalf("KimiAPIKey = %q", cfg.KimiAPIKey)
+	if cfg.ProviderAPIKey("kimi") != "kimi-key" {
+		t.Fatalf("KimiAPIKey = %q", cfg.ProviderAPIKey("kimi"))
 	}
-	if cfg.GroqAPIKey != "groq-key" {
-		t.Fatalf("GroqAPIKey = %q", cfg.GroqAPIKey)
+	if cfg.ProviderAPIKey("groq") != "groq-key" {
+		t.Fatalf("GroqAPIKey = %q", cfg.ProviderAPIKey("groq"))
 	}
 	if cfg.MaxIterations != 700 {
 		t.Fatalf("MaxIterations = %d", cfg.MaxIterations)
@@ -114,11 +114,20 @@ func TestRunOnboard_PreservesExistingValuesOnBlankInput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("config.Load() error = %v", err)
 	}
-	if cfg.TelegramBotToken != "old-telegram" || cfg.KimiAPIKey != "old-kimi" || cfg.AnthropicAPIKey != "old-anthropic" || cfg.GoogleAPIKey != "old-google" || cfg.KiloAPIKey != "old-kilo" || cfg.OpenRouterAPIKey != "old-openrouter" || cfg.ZAIAPIKey != "old-zai" || cfg.AlibabaAPIKey != "old-alibaba" || cfg.OpenAIAPIKey != "old-openai" || cfg.GroqAPIKey != "old-groq" {
+	if cfg.TelegramBotToken != "old-telegram" ||
+		cfg.ProviderAPIKey("kimi") != "old-kimi" ||
+		cfg.ProviderAPIKey("anthropic") != "old-anthropic" ||
+		cfg.ProviderAPIKey("google") != "old-google" ||
+		cfg.ProviderAPIKey("kilo") != "old-kilo" ||
+		cfg.ProviderAPIKey("openrouter") != "old-openrouter" ||
+		cfg.ProviderAPIKey("zai") != "old-zai" ||
+		cfg.ProviderAPIKey("alibaba") != "old-alibaba" ||
+		cfg.ProviderAPIKey("openai") != "old-openai" ||
+		cfg.ProviderAPIKey("groq") != "old-groq" {
 		t.Fatalf("expected secrets to be preserved, got %+v", cfg)
 	}
-	if cfg.LLMProvider != "kimi" || cfg.LLMModel != "moonshot-v1-32k" || cfg.STTProvider != "groq" {
-		t.Fatalf("expected providers to be preserved, got llm=%q model=%q stt=%q", cfg.LLMProvider, cfg.LLMModel, cfg.STTProvider)
+	if cfg.DefaultProvider != "kimi" || cfg.DefaultModel != "moonshot-v1-32k" || cfg.STTProvider != "groq" {
+		t.Fatalf("expected providers to be preserved, got llm=%q model=%q stt=%q", cfg.DefaultProvider, cfg.DefaultModel, cfg.STTProvider)
 	}
 	if len(cfg.TelegramAllowedUserIDs) != 1 || cfg.TelegramAllowedUserIDs[0] != 42 {
 		t.Fatalf("expected allowed user IDs to be preserved, got %v", cfg.TelegramAllowedUserIDs)

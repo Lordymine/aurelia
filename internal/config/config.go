@@ -50,30 +50,84 @@ const (
 	defaultSTTProvider      = "groq"
 )
 
-// AppConfig holds all runtime configuration needed for the application.
-type AppConfig struct {
-	LLMProvider            string
-	LLMModel               string
-	STTProvider            string
-	TelegramBotToken       string
-	TelegramAllowedUserIDs []int64
-	AnthropicAPIKey        string
-	GoogleAPIKey           string
-	KiloAPIKey             string
-	KimiAPIKey             string
-	OpenRouterAPIKey       string
-	ZAIAPIKey              string
-	AlibabaAPIKey          string
-	OpenAIAPIKey           string
-	OpenAIAuthMode         string
-	GroqAPIKey             string
-	MaxIterations          int
-	DBPath                 string
-	MemoryWindowSize       int
-	MCPConfigPath          string
+// ProviderConfig holds credentials and endpoint for a single LLM provider.
+type ProviderConfig struct {
+	APIKey   string `json:"api_key"`
+	BaseURL  string `json:"base_url,omitempty"`
+	AuthMode string `json:"auth_mode,omitempty"`
 }
 
+// AppConfig holds all runtime configuration needed for the application.
+type AppConfig struct {
+	DefaultProvider string                    `json:"default_provider"`
+	DefaultModel    string                    `json:"default_model"`
+	Providers       map[string]ProviderConfig `json:"providers"`
+
+	TelegramBotToken       string  `json:"telegram_bot_token"`
+	TelegramAllowedUserIDs []int64 `json:"telegram_allowed_user_ids"`
+
+	EmbeddingProvider string `json:"embedding_provider"`
+	EmbeddingModel    string `json:"embedding_model"`
+	EmbeddingAPIKey   string `json:"embedding_api_key,omitempty"`
+
+	STTProvider string `json:"stt_provider"`
+
+	MaxIterations    int    `json:"max_iterations"`
+	DBPath           string `json:"db_path"`
+	MemoryWindowSize int    `json:"memory_window_size"`
+	MCPConfigPath    string `json:"mcp_servers_config_path"`
+}
+
+// ProviderAPIKey returns the API key for the given provider, or empty string.
+func (c *AppConfig) ProviderAPIKey(provider string) string {
+	p, ok := c.Providers[normalizeProvider(provider)]
+	if !ok {
+		return ""
+	}
+	return p.APIKey
+}
+
+// ProviderBaseURL returns the base URL for the given provider, or empty string.
+func (c *AppConfig) ProviderBaseURL(provider string) string {
+	p, ok := c.Providers[normalizeProvider(provider)]
+	if !ok {
+		return ""
+	}
+	return p.BaseURL
+}
+
+// ProviderAuthMode returns the auth mode for the given provider, or empty string.
+func (c *AppConfig) ProviderAuthMode(provider string) string {
+	p, ok := c.Providers[normalizeProvider(provider)]
+	if !ok {
+		return ""
+	}
+	return p.AuthMode
+}
+
+// fileConfig is the JSON structure written to disk (new schema).
 type fileConfig struct {
+	DefaultProvider string                    `json:"default_provider"`
+	DefaultModel    string                    `json:"default_model"`
+	Providers       map[string]ProviderConfig `json:"providers"`
+
+	TelegramBotToken       string  `json:"telegram_bot_token"`
+	TelegramAllowedUserIDs []int64 `json:"telegram_allowed_user_ids"`
+
+	EmbeddingProvider string `json:"embedding_provider,omitempty"`
+	EmbeddingModel    string `json:"embedding_model,omitempty"`
+	EmbeddingAPIKey   string `json:"embedding_api_key,omitempty"`
+
+	STTProvider string `json:"stt_provider"`
+
+	MaxIterations    int    `json:"max_iterations"`
+	DBPath           string `json:"db_path"`
+	MemoryWindowSize int    `json:"memory_window_size"`
+	MCPConfigPath    string `json:"mcp_servers_config_path"`
+}
+
+// legacyFileConfig supports reading the old flat-key JSON format.
+type legacyFileConfig struct {
 	LLMProvider            string  `json:"llm_provider"`
 	LLMModel               string  `json:"llm_model"`
 	STTProvider            string  `json:"stt_provider"`
@@ -96,6 +150,7 @@ type fileConfig struct {
 }
 
 // EditableConfig represents the user-editable portion of the runtime config.
+// Keeps flat per-provider fields for backward compatibility with onboarding UI.
 type EditableConfig struct {
 	LLMProvider            string
 	LLMModel               string
@@ -114,6 +169,9 @@ type EditableConfig struct {
 	GroqAPIKey             string
 	MaxIterations          int
 	MemoryWindowSize       int
+	EmbeddingProvider      string
+	EmbeddingModel         string
+	EmbeddingAPIKey        string
 }
 
 func (c EditableConfig) LLMAPIKey(provider string) string {
@@ -162,7 +220,7 @@ func (c *EditableConfig) SetLLMAPIKey(provider, value string) {
 // missing, and returns the normalized runtime config.
 func Load(r *runtime.PathResolver) (*AppConfig, error) {
 	path := r.AppConfig()
-	defaults := DefaultFileConfig(r)
+	defaults := defaultFileConfig(r)
 
 	if _, err := os.Stat(path); err != nil {
 		if os.IsNotExist(err) {
@@ -181,8 +239,17 @@ func Load(r *runtime.PathResolver) (*AppConfig, error) {
 
 	cfg := defaults
 	if len(data) != 0 {
+		// Try new schema first
 		if err := json.Unmarshal(data, &cfg); err != nil {
 			return nil, fmt.Errorf("decode app config: %w", err)
+		}
+
+		// Detect legacy format: if providers map is empty but legacy fields present
+		if len(cfg.Providers) == 0 {
+			var legacy legacyFileConfig
+			if err := json.Unmarshal(data, &legacy); err == nil {
+				cfg = migrateLegacy(legacy, r)
+			}
 		}
 	}
 
@@ -196,11 +263,51 @@ func Load(r *runtime.PathResolver) (*AppConfig, error) {
 	return toAppConfig(normalized), nil
 }
 
+// migrateLegacy converts a legacy flat-key config to the new schema.
+func migrateLegacy(legacy legacyFileConfig, r *runtime.PathResolver) fileConfig {
+	providers := make(map[string]ProviderConfig)
+
+	maybeSet := func(name, key string) {
+		if key != "" {
+			providers[name] = ProviderConfig{APIKey: key}
+		}
+	}
+
+	maybeSet("anthropic", legacy.AnthropicAPIKey)
+	maybeSet("google", legacy.GoogleAPIKey)
+	maybeSet("kilo", legacy.KiloAPIKey)
+	maybeSet("kimi", legacy.KimiAPIKey)
+	maybeSet("openrouter", legacy.OpenRouterAPIKey)
+	maybeSet("zai", legacy.ZAIAPIKey)
+	maybeSet("alibaba", legacy.AlibabaAPIKey)
+	maybeSet("groq", legacy.GroqAPIKey)
+
+	if legacy.OpenAIAPIKey != "" || legacy.OpenAIAuthMode != "" {
+		providers["openai"] = ProviderConfig{
+			APIKey:   legacy.OpenAIAPIKey,
+			AuthMode: legacy.OpenAIAuthMode,
+		}
+	}
+
+	return fileConfig{
+		DefaultProvider:        legacy.LLMProvider,
+		DefaultModel:           legacy.LLMModel,
+		Providers:              providers,
+		TelegramBotToken:       legacy.TelegramBotToken,
+		TelegramAllowedUserIDs: legacy.TelegramAllowedUserIDs,
+		STTProvider:            legacy.STTProvider,
+		MaxIterations:          legacy.MaxIterations,
+		DBPath:                 legacy.DBPath,
+		MemoryWindowSize:       legacy.MemoryWindowSize,
+		MCPConfigPath:          legacy.MCPConfigPath,
+	}
+}
+
 func defaultFileConfig(r *runtime.PathResolver) fileConfig {
 	return fileConfig{
-		LLMProvider:            defaultLLMProvider,
-		LLMModel:               defaultModelForProvider(defaultLLMProvider),
-		OpenAIAuthMode:         "api_key",
+		DefaultProvider:        defaultLLMProvider,
+		DefaultModel:           defaultModelForProvider(defaultLLMProvider),
+		Providers:              map[string]ProviderConfig{},
 		STTProvider:            defaultSTTProvider,
 		TelegramAllowedUserIDs: []int64{},
 		MaxIterations:          defaultMaxIterations,
@@ -234,49 +341,85 @@ func LoadEditable(r *runtime.PathResolver) (*EditableConfig, error) {
 	if err != nil {
 		return nil, err
 	}
+	return appConfigToEditable(cfg), nil
+}
+
+// appConfigToEditable converts AppConfig to the flat EditableConfig.
+func appConfigToEditable(cfg *AppConfig) *EditableConfig {
+	openAIAuthMode := cfg.ProviderAuthMode("openai")
+	if openAIAuthMode == "" {
+		openAIAuthMode = "api_key"
+	}
 	return &EditableConfig{
-		LLMProvider:            cfg.LLMProvider,
-		LLMModel:               cfg.LLMModel,
+		LLMProvider:            cfg.DefaultProvider,
+		LLMModel:               cfg.DefaultModel,
 		STTProvider:            cfg.STTProvider,
 		TelegramBotToken:       cfg.TelegramBotToken,
 		TelegramAllowedUserIDs: append([]int64(nil), cfg.TelegramAllowedUserIDs...),
-		AnthropicAPIKey:        cfg.AnthropicAPIKey,
-		GoogleAPIKey:           cfg.GoogleAPIKey,
-		KiloAPIKey:             cfg.KiloAPIKey,
-		KimiAPIKey:             cfg.KimiAPIKey,
-		OpenRouterAPIKey:       cfg.OpenRouterAPIKey,
-		ZAIAPIKey:              cfg.ZAIAPIKey,
-		AlibabaAPIKey:          cfg.AlibabaAPIKey,
-		OpenAIAPIKey:           cfg.OpenAIAPIKey,
-		OpenAIAuthMode:         cfg.OpenAIAuthMode,
-		GroqAPIKey:             cfg.GroqAPIKey,
+		AnthropicAPIKey:        cfg.ProviderAPIKey("anthropic"),
+		GoogleAPIKey:           cfg.ProviderAPIKey("google"),
+		KiloAPIKey:             cfg.ProviderAPIKey("kilo"),
+		KimiAPIKey:             cfg.ProviderAPIKey("kimi"),
+		OpenRouterAPIKey:       cfg.ProviderAPIKey("openrouter"),
+		ZAIAPIKey:              cfg.ProviderAPIKey("zai"),
+		AlibabaAPIKey:          cfg.ProviderAPIKey("alibaba"),
+		OpenAIAPIKey:           cfg.ProviderAPIKey("openai"),
+		OpenAIAuthMode:         openAIAuthMode,
+		GroqAPIKey:             cfg.ProviderAPIKey("groq"),
 		MaxIterations:          cfg.MaxIterations,
 		MemoryWindowSize:       cfg.MemoryWindowSize,
-	}, nil
+		EmbeddingProvider:      cfg.EmbeddingProvider,
+		EmbeddingModel:         cfg.EmbeddingModel,
+		EmbeddingAPIKey:        cfg.EmbeddingAPIKey,
+	}
 }
 
 // SaveEditable updates the user-editable config subset while preserving managed paths.
 func SaveEditable(r *runtime.PathResolver, editable EditableConfig) error {
-	cfg := normalizeFileConfig(fileConfig{
-		LLMProvider:            editable.LLMProvider,
-		LLMModel:               editable.LLMModel,
+	cfg := editableToFileConfig(editable)
+	normalized := normalizeFileConfig(cfg, r)
+	return writeConfigFile(r.AppConfig(), normalized)
+}
+
+// editableToFileConfig converts the flat EditableConfig to the new fileConfig.
+func editableToFileConfig(editable EditableConfig) fileConfig {
+	providers := make(map[string]ProviderConfig)
+
+	maybeSet := func(name, key string) {
+		if key != "" {
+			providers[name] = ProviderConfig{APIKey: key}
+		}
+	}
+
+	maybeSet("anthropic", editable.AnthropicAPIKey)
+	maybeSet("google", editable.GoogleAPIKey)
+	maybeSet("kilo", editable.KiloAPIKey)
+	maybeSet("kimi", editable.KimiAPIKey)
+	maybeSet("openrouter", editable.OpenRouterAPIKey)
+	maybeSet("zai", editable.ZAIAPIKey)
+	maybeSet("alibaba", editable.AlibabaAPIKey)
+	maybeSet("groq", editable.GroqAPIKey)
+
+	if editable.OpenAIAPIKey != "" || editable.OpenAIAuthMode != "" {
+		providers["openai"] = ProviderConfig{
+			APIKey:   editable.OpenAIAPIKey,
+			AuthMode: editable.OpenAIAuthMode,
+		}
+	}
+
+	return fileConfig{
+		DefaultProvider:        editable.LLMProvider,
+		DefaultModel:           editable.LLMModel,
+		Providers:              providers,
 		STTProvider:            editable.STTProvider,
 		TelegramBotToken:       editable.TelegramBotToken,
 		TelegramAllowedUserIDs: append([]int64(nil), editable.TelegramAllowedUserIDs...),
-		AnthropicAPIKey:        editable.AnthropicAPIKey,
-		GoogleAPIKey:           editable.GoogleAPIKey,
-		KiloAPIKey:             editable.KiloAPIKey,
-		KimiAPIKey:             editable.KimiAPIKey,
-		OpenRouterAPIKey:       editable.OpenRouterAPIKey,
-		ZAIAPIKey:              editable.ZAIAPIKey,
-		AlibabaAPIKey:          editable.AlibabaAPIKey,
-		OpenAIAPIKey:           editable.OpenAIAPIKey,
-		OpenAIAuthMode:         editable.OpenAIAuthMode,
-		GroqAPIKey:             editable.GroqAPIKey,
+		EmbeddingProvider:      editable.EmbeddingProvider,
+		EmbeddingModel:         editable.EmbeddingModel,
+		EmbeddingAPIKey:        editable.EmbeddingAPIKey,
 		MaxIterations:          editable.MaxIterations,
 		MemoryWindowSize:       editable.MemoryWindowSize,
-	}, r)
-	return writeConfigFile(r.AppConfig(), cfg)
+	}
 }
 
 func normalizeFileConfig(cfg fileConfig, r *runtime.PathResolver) fileConfig {
@@ -284,14 +427,11 @@ func normalizeFileConfig(cfg fileConfig, r *runtime.PathResolver) fileConfig {
 	if cfg.TelegramAllowedUserIDs == nil {
 		cfg.TelegramAllowedUserIDs = defaults.TelegramAllowedUserIDs
 	}
-	if cfg.LLMProvider == "" {
-		cfg.LLMProvider = defaults.LLMProvider
+	if cfg.DefaultProvider == "" {
+		cfg.DefaultProvider = defaults.DefaultProvider
 	}
-	if cfg.LLMModel == "" {
-		cfg.LLMModel = defaultModelForProvider(cfg.LLMProvider)
-	}
-	if cfg.OpenAIAuthMode == "" {
-		cfg.OpenAIAuthMode = defaults.OpenAIAuthMode
+	if cfg.DefaultModel == "" {
+		cfg.DefaultModel = defaultModelForProvider(cfg.DefaultProvider)
 	}
 	if cfg.STTProvider == "" {
 		cfg.STTProvider = defaults.STTProvider
@@ -307,6 +447,9 @@ func normalizeFileConfig(cfg fileConfig, r *runtime.PathResolver) fileConfig {
 	}
 	if cfg.MCPConfigPath == "" {
 		cfg.MCPConfigPath = defaults.MCPConfigPath
+	}
+	if cfg.Providers == nil {
+		cfg.Providers = map[string]ProviderConfig{}
 	}
 	return cfg
 }
@@ -330,21 +473,15 @@ func writeConfigFile(path string, cfg fileConfig) error {
 
 func toAppConfig(cfg fileConfig) *AppConfig {
 	return &AppConfig{
-		LLMProvider:            cfg.LLMProvider,
-		LLMModel:               cfg.LLMModel,
-		STTProvider:            cfg.STTProvider,
+		DefaultProvider:        cfg.DefaultProvider,
+		DefaultModel:           cfg.DefaultModel,
+		Providers:              cfg.Providers,
 		TelegramBotToken:       cfg.TelegramBotToken,
 		TelegramAllowedUserIDs: cfg.TelegramAllowedUserIDs,
-		AnthropicAPIKey:        cfg.AnthropicAPIKey,
-		GoogleAPIKey:           cfg.GoogleAPIKey,
-		KiloAPIKey:             cfg.KiloAPIKey,
-		KimiAPIKey:             cfg.KimiAPIKey,
-		OpenRouterAPIKey:       cfg.OpenRouterAPIKey,
-		ZAIAPIKey:              cfg.ZAIAPIKey,
-		AlibabaAPIKey:          cfg.AlibabaAPIKey,
-		OpenAIAPIKey:           cfg.OpenAIAPIKey,
-		OpenAIAuthMode:         cfg.OpenAIAuthMode,
-		GroqAPIKey:             cfg.GroqAPIKey,
+		EmbeddingProvider:      cfg.EmbeddingProvider,
+		EmbeddingModel:         cfg.EmbeddingModel,
+		EmbeddingAPIKey:        cfg.EmbeddingAPIKey,
+		STTProvider:            cfg.STTProvider,
 		MaxIterations:          cfg.MaxIterations,
 		DBPath:                 cfg.DBPath,
 		MemoryWindowSize:       cfg.MemoryWindowSize,
@@ -358,19 +495,12 @@ func defaultLLMModelForProvider(provider string) string {
 
 func sameFileConfig(a, b fileConfig) bool {
 	if a.TelegramBotToken != b.TelegramBotToken ||
-		a.LLMProvider != b.LLMProvider ||
-		a.LLMModel != b.LLMModel ||
+		a.DefaultProvider != b.DefaultProvider ||
+		a.DefaultModel != b.DefaultModel ||
 		a.STTProvider != b.STTProvider ||
-		a.AnthropicAPIKey != b.AnthropicAPIKey ||
-		a.GoogleAPIKey != b.GoogleAPIKey ||
-		a.KiloAPIKey != b.KiloAPIKey ||
-		a.KimiAPIKey != b.KimiAPIKey ||
-		a.OpenRouterAPIKey != b.OpenRouterAPIKey ||
-		a.ZAIAPIKey != b.ZAIAPIKey ||
-		a.AlibabaAPIKey != b.AlibabaAPIKey ||
-		a.OpenAIAPIKey != b.OpenAIAPIKey ||
-		a.OpenAIAuthMode != b.OpenAIAuthMode ||
-		a.GroqAPIKey != b.GroqAPIKey ||
+		a.EmbeddingProvider != b.EmbeddingProvider ||
+		a.EmbeddingModel != b.EmbeddingModel ||
+		a.EmbeddingAPIKey != b.EmbeddingAPIKey ||
 		a.MaxIterations != b.MaxIterations ||
 		a.DBPath != b.DBPath ||
 		a.MemoryWindowSize != b.MemoryWindowSize ||
@@ -385,6 +515,14 @@ func sameFileConfig(a, b fileConfig) bool {
 			return false
 		}
 	}
+	if len(a.Providers) != len(b.Providers) {
+		return false
+	}
+	for k, v := range a.Providers {
+		bv, ok := b.Providers[k]
+		if !ok || v != bv {
+			return false
+		}
+	}
 	return true
 }
-

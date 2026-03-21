@@ -100,7 +100,7 @@ func bootstrapApp() (*app, error) {
 func buildTranscriber(cfg *config.AppConfig) (stt.Transcriber, error) {
 	switch cfg.STTProvider {
 	case "", "groq":
-		return stt.NewGroqTranscriber(cfg.GroqAPIKey), nil
+		return stt.NewGroqTranscriber(cfg.ProviderAPIKey("groq")), nil
 	default:
 		return nil, fmt.Errorf("unsupported stt provider %q", cfg.STTProvider)
 	}
