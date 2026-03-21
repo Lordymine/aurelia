@@ -99,10 +99,9 @@ func (bc *BotController) processInput(c telebot.Context, text string, parts [][]
 		}
 	}
 
-	// Resume previous session if available
-	if sessionID := bc.sessions.Get(c.Chat().ID); sessionID != "" {
-		req.Options.Resume = sessionID
-	}
+	// NOTE: Session resume disabled — requires long-lived Bridge process.
+	// Each bridge.Execute spawns a fresh process, so session IDs are not
+	// resumable across requests. Memory injection provides context instead.
 
 	// Apply chat-level cwd if no agent overrides it
 	if req.Options.Cwd == "" {
@@ -213,9 +212,9 @@ func (bc *BotController) processBridgeEvents(c telebot.Context, ch <-chan bridge
 			return SendError(bc.bot, c.Chat(), errMsg)
 
 		case "system":
-			if ev.SessionID != "" {
-				bc.sessions.Set(c.Chat().ID, ev.SessionID)
-			}
+			// Session ID logged but not stored — resume disabled until
+			// Bridge is long-lived.
+			log.Printf("Bridge session: %s", ev.SessionID)
 
 		default:
 			log.Printf("Bridge event (ignored): %s", ev.Type)
