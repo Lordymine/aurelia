@@ -3,43 +3,106 @@ package cron
 import (
 	"context"
 	"fmt"
+
+	"github.com/kocar/aurelia/internal/agents"
+	"github.com/kocar/aurelia/internal/bridge"
 )
 
-// BridgeCronRuntime executes cron jobs via a BridgeExecutor.
+// BridgeCronRuntime executes cron jobs via the Claude Code bridge,
+// resolving agent config from the registry and injecting persona + memory.
 type BridgeCronRuntime struct {
-	executor      BridgeExecutor
-	basePrompt    string
-	promptBuilder func(ctx context.Context, job CronJob) (string, error)
+	bridge  BridgeExecutor
+	agents  AgentRegistry
+	persona PersonaBuilder
+	memory  MemoryStore
 }
 
-// NewBridgeCronRuntime creates a runtime that uses the bridge executor.
-func NewBridgeCronRuntime(executor BridgeExecutor, baseSystemPrompt string) *BridgeCronRuntime {
+// AgentRegistry resolves agent definitions by name.
+type AgentRegistry interface {
+	Get(name string) *agents.Agent
+}
+
+// PersonaBuilder builds the base system prompt from persona files.
+type PersonaBuilder interface {
+	BuildPrompt() (string, error)
+}
+
+// MemoryStore injects relevant memories and saves new ones.
+type MemoryStore interface {
+	Inject(ctx context.Context, query string, limit int) (string, error)
+	Save(ctx context.Context, content, category, agent string) error
+}
+
+// NewBridgeCronRuntime creates a runtime that executes jobs via Bridge
+// with agent config, persona prompt, and memory context.
+func NewBridgeCronRuntime(
+	b BridgeExecutor,
+	ag AgentRegistry,
+	p PersonaBuilder,
+	m MemoryStore,
+) *BridgeCronRuntime {
 	return &BridgeCronRuntime{
-		executor:   executor,
-		basePrompt: baseSystemPrompt,
+		bridge:  b,
+		agents:  ag,
+		persona: p,
+		memory:  m,
 	}
 }
 
-// NewBridgeCronRuntimeWithPromptBuilder creates a runtime with dynamic prompt building.
-func NewBridgeCronRuntimeWithPromptBuilder(executor BridgeExecutor, baseSystemPrompt string, promptBuilder func(ctx context.Context, job CronJob) (string, error)) *BridgeCronRuntime {
-	return &BridgeCronRuntime{
-		executor:      executor,
-		basePrompt:    baseSystemPrompt,
-		promptBuilder: promptBuilder,
-	}
-}
-
-// ExecuteJob runs the job via the bridge executor.
+// ExecuteJob resolves the agent, builds the system prompt with persona and
+// memory context, executes via Bridge, and saves the result to memory.
 func (r *BridgeCronRuntime) ExecuteJob(ctx context.Context, job CronJob) (string, error) {
-	systemPrompt := r.basePrompt
-	if r.promptBuilder != nil {
-		prompt, err := r.promptBuilder(ctx, job)
-		if err == nil {
-			systemPrompt = prompt
-		}
+	// 1. Get agent config
+	agent := r.agents.Get(job.AgentName)
+	if agent == nil {
+		return "", fmt.Errorf("agent %q not found", job.AgentName)
 	}
 
-	return r.executor.Execute(ctx, systemPrompt, job.Prompt)
+	// 2. Build system prompt from persona
+	basePrompt, err := r.persona.BuildPrompt()
+	if err != nil {
+		return "", fmt.Errorf("build persona prompt: %w", err)
+	}
+	systemPrompt := basePrompt + "\n\n" + agent.Prompt
+
+	// 3. Inject memory context (best effort — failure is non-fatal)
+	if memCtx, err := r.memory.Inject(ctx, job.Prompt, 10); err == nil && memCtx != "" {
+		systemPrompt += "\n\n" + memCtx
+	}
+
+	// 4. Execute via Bridge
+	result, err := r.bridge.Execute(ctx, bridge.Request{
+		Command: "query",
+		Prompt:  job.Prompt,
+		Options: bridge.RequestOptions{
+			Model:          agent.Model,
+			SystemPrompt:   systemPrompt,
+			AllowedTools:   agent.AllowedTools,
+			MCPServers:     agent.MCPServers,
+			PermissionMode: "bypassPermissions",
+		},
+	})
+	if err != nil {
+		return "", fmt.Errorf("bridge execute: %w", err)
+	}
+	if result.Type == "error" {
+		return "", fmt.Errorf("bridge error: %s", result.Message)
+	}
+
+	// 5. Save result to memory (best effort)
+	_ = r.memory.Save(ctx, result.Content, "conversation", agent.Name)
+
+	return result.Content, nil
+}
+
+// BridgeAdapter wraps *bridge.Bridge to satisfy BridgeExecutor.
+type BridgeAdapter struct {
+	B *bridge.Bridge
+}
+
+// Execute calls bridge.ExecuteSync and returns the terminal event.
+func (a *BridgeAdapter) Execute(ctx context.Context, req bridge.Request) (*bridge.Event, error) {
+	return a.B.ExecuteSync(ctx, req)
 }
 
 // DeliveryFunc is called after a job completes to deliver its output.

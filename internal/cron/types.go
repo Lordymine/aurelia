@@ -3,6 +3,8 @@ package cron
 import (
 	"context"
 	"time"
+
+	"github.com/kocar/aurelia/internal/bridge"
 )
 
 // CronJob represents a scheduled job.
@@ -10,6 +12,7 @@ type CronJob struct {
 	ID           string
 	OwnerUserID  string
 	TargetChatID int64
+	AgentName    string // agent from registry to execute this job
 	ScheduleType string
 	CronExpr     string
 	RunAt        *time.Time
@@ -46,9 +49,9 @@ type Store interface {
 	ListExecutionsByJob(ctx context.Context, jobID string) ([]CronExecution, error)
 }
 
-// BridgeExecutor is the interface for executing a prompt via the Claude Code bridge.
+// BridgeExecutor is the interface for executing a request via the Claude Code bridge.
 type BridgeExecutor interface {
-	Execute(ctx context.Context, systemPrompt string, userPrompt string) (string, error)
+	Execute(ctx context.Context, req bridge.Request) (*bridge.Event, error)
 }
 
 // Runtime executes a cron job and returns its output.
