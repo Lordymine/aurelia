@@ -75,10 +75,14 @@ func bootstrapApp() (*app, error) {
 		return nil, fmt.Errorf("initialize transcriber: %w", err)
 	}
 
+	// TODO(task-10): wire bridge, agents registry, and memory store
 	bot, err := telegram.NewBotController(
 		cfg,
-		transcriber,
+		nil, // bridge — wired in task 10
+		nil, // agents registry — wired in task 10
+		nil, // memory store — wired in task 10
 		canonicalService,
+		transcriber,
 		personasDir,
 	)
 	if err != nil {

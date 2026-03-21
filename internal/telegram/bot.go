@@ -8,7 +8,10 @@ import (
 
 	"gopkg.in/telebot.v3"
 
+	"github.com/kocar/aurelia/internal/agents"
+	"github.com/kocar/aurelia/internal/bridge"
 	"github.com/kocar/aurelia/internal/config"
+	"github.com/kocar/aurelia/internal/memory"
 	"github.com/kocar/aurelia/internal/persona"
 	"github.com/kocar/aurelia/pkg/stt"
 )
@@ -17,13 +20,16 @@ import (
 type BotController struct {
 	bot              *telebot.Bot
 	config           *config.AppConfig
+	bridge           *bridge.Bridge
+	agents           *agents.Registry
+	memory           *memory.Store
+	persona          *persona.CanonicalIdentityService
 	stt              stt.Transcriber
-	canonical        *persona.CanonicalIdentityService
+	personasDir      string
 	bootstrapMu      sync.Mutex
 	pendingBootstrap map[int64]bootstrapState
 	albumMu          sync.Mutex
 	pendingAlbums    map[string]*pendingAlbum
-	personasDir      string
 }
 
 type pendingAlbum struct {
@@ -40,8 +46,11 @@ type albumPhoto struct {
 // NewBotController builds the Telegram controller.
 func NewBotController(
 	cfg *config.AppConfig,
+	br *bridge.Bridge,
+	ag *agents.Registry,
+	mem *memory.Store,
+	p *persona.CanonicalIdentityService,
 	s stt.Transcriber,
-	canonical *persona.CanonicalIdentityService,
 	personasDir string,
 ) (*BotController, error) {
 
@@ -58,11 +67,14 @@ func NewBotController(
 	bc := &BotController{
 		bot:              b,
 		config:           cfg,
+		bridge:           br,
+		agents:           ag,
+		memory:           mem,
+		persona:          p,
 		stt:              s,
-		canonical:        canonical,
+		personasDir:      personasDir,
 		pendingBootstrap: make(map[int64]bootstrapState),
 		pendingAlbums:    make(map[string]*pendingAlbum),
-		personasDir:      personasDir,
 	}
 
 	bc.setupRoutes()
