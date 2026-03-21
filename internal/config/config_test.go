@@ -30,8 +30,8 @@ func TestLoad_CreatesDefaultAppConfigWhenMissing(t *testing.T) {
 	if cfg.DefaultProvider != defaultLLMProvider {
 		t.Fatalf("DefaultProvider = %q, want %q", cfg.DefaultProvider, defaultLLMProvider)
 	}
-	if cfg.DefaultModel != defaultLLMModelForProvider(defaultLLMProvider) {
-		t.Fatalf("DefaultModel = %q, want %q", cfg.DefaultModel, defaultLLMModelForProvider(defaultLLMProvider))
+	if cfg.DefaultModel != defaultModelForProvider(defaultLLMProvider) {
+		t.Fatalf("DefaultModel = %q, want %q", cfg.DefaultModel, defaultModelForProvider(defaultLLMProvider))
 	}
 	if cfg.STTProvider != defaultSTTProvider {
 		t.Fatalf("STTProvider = %q, want %q", cfg.STTProvider, defaultSTTProvider)
@@ -227,8 +227,8 @@ func TestConfig_DefaultValues(t *testing.T) {
 	if cfg.DefaultProvider != defaultLLMProvider {
 		t.Fatalf("DefaultProvider = %q, want %q", cfg.DefaultProvider, defaultLLMProvider)
 	}
-	if cfg.DefaultModel != defaultLLMModelForProvider(defaultLLMProvider) {
-		t.Fatalf("DefaultModel = %q, want %q", cfg.DefaultModel, defaultLLMModelForProvider(defaultLLMProvider))
+	if cfg.DefaultModel != defaultModelForProvider(defaultLLMProvider) {
+		t.Fatalf("DefaultModel = %q, want %q", cfg.DefaultModel, defaultModelForProvider(defaultLLMProvider))
 	}
 	if cfg.STTProvider != defaultSTTProvider {
 		t.Fatalf("STTProvider = %q, want %q", cfg.STTProvider, defaultSTTProvider)

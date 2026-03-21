@@ -76,6 +76,7 @@ func (r *BridgeCronRuntime) ExecuteJob(ctx context.Context, job CronJob) (string
 		Prompt:  job.Prompt,
 		Options: bridge.RequestOptions{
 			Model:          agent.Model,
+			Cwd:            agent.Cwd,
 			SystemPrompt:   systemPrompt,
 			AllowedTools:   agent.AllowedTools,
 			MCPServers:     agent.MCPServers,

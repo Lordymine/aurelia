@@ -110,12 +110,6 @@ func SendError(bot *telebot.Bot, chat *telebot.Chat, errMsg string) error {
 	return sendErrorWithSender(bot, chat, "Erro", errMsg)
 }
 
-func SendAudio(bot *telebot.Bot, chat *telebot.Chat, text string) error {
-	log.Println("Audio generation required. Simulating edge-tts dump...")
-	log.Println("Edge-TTS binary mockup called. Will fallback to Text output for now.")
-	return SendText(bot, chat, text)
-}
-
 func sendErrorWithSender(sender messageSender, chat *telebot.Chat, title, errMsg string) error {
 	formatted := ErrorMessage(title, errMsg)
 	_, err := sender.Send(chat, formatted, &telebot.SendOptions{

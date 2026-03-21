@@ -330,11 +330,6 @@ func DefaultEditableConfig() EditableConfig {
 	}
 }
 
-// DefaultFileConfig returns the full default config including instance paths.
-func DefaultFileConfig(r *runtime.PathResolver) fileConfig {
-	return defaultFileConfig(r)
-}
-
 // LoadEditable returns the editable config subset from the current app config.
 func LoadEditable(r *runtime.PathResolver) (*EditableConfig, error) {
 	cfg, err := Load(r)
@@ -487,10 +482,6 @@ func toAppConfig(cfg fileConfig) *AppConfig {
 		MemoryWindowSize:       cfg.MemoryWindowSize,
 		MCPConfigPath:          cfg.MCPConfigPath,
 	}
-}
-
-func defaultLLMModelForProvider(provider string) string {
-	return defaultModelForProvider(provider)
 }
 
 func sameFileConfig(a, b fileConfig) bool {
