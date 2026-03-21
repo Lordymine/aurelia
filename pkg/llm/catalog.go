@@ -2,14 +2,8 @@ package llm
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"net/http"
-	"sort"
 	"strings"
-
-	"github.com/anthropics/anthropic-sdk-go"
-	"github.com/anthropics/anthropic-sdk-go/option"
 )
 
 // ModelOption is a selectable model entry for onboarding and config UIs.
@@ -21,6 +15,7 @@ type ModelOption struct {
 	IsFree             bool
 }
 
+// Label returns a display label for the model option.
 func (m ModelOption) Label() string {
 	badges := make([]string, 0, 3)
 	if m.SupportsImageInput {
@@ -55,52 +50,22 @@ type ModelCatalogCredentials struct {
 	OpenAIAuthMode   string
 }
 
-const googleModelsURL = "https://generativelanguage.googleapis.com/v1beta/models"
-
 // ListModels returns the available model options for a provider.
-// Providers may use remote discovery or curated fallbacks internally.
+// Remote discovery was removed — returns curated fallback models only.
 func ListModels(ctx context.Context, provider string, creds ModelCatalogCredentials) ([]ModelOption, error) {
 	_ = ctx
 	_ = creds
 
 	provider = NormalizeProvider(provider)
+	if provider == "openai" && creds.OpenAIAuthMode == "codex" {
+		return fallbackModels("openai_codex"), nil
+	}
 
-	switch provider {
-	case "anthropic":
-		if creds.AnthropicAPIKey != "" {
-			return listAnthropicModels(ctx, creds.AnthropicAPIKey)
-		}
-		return fallbackModels("anthropic"), nil
-	case "google":
-		if creds.GoogleAPIKey != "" {
-			return listGoogleModels(ctx, creds.GoogleAPIKey, googleModelsURL, http.DefaultClient)
-		}
-		return fallbackModels("google"), nil
-	case "kilo":
-		models, err := listKiloModels(ctx, creds.KiloAPIKey, kiloModelsCatalogURL, http.DefaultClient)
-		if err == nil && len(models) != 0 {
-			return models, nil
-		}
-		return fallbackModels("kilo"), nil
-	case "openrouter":
-		return listOpenRouterModels(ctx, creds.OpenRouterAPIKey, openRouterModelsURL, http.DefaultClient)
-	case "zai":
-		return fallbackModels("zai"), nil
-	case "alibaba":
-		return fallbackModels("alibaba"), nil
-	case "openai":
-		if creds.OpenAIAuthMode == "codex" {
-			return fallbackModels("openai_codex"), nil
-		}
-		if creds.OpenAIAPIKey != "" {
-			return listOpenAIModels(ctx, creds.OpenAIAPIKey, openAIModelsURL, http.DefaultClient)
-		}
-		return fallbackModels("openai"), nil
-	case "kimi":
-		return fallbackModels("kimi"), nil
-	default:
+	models := fallbackModels(provider)
+	if models == nil {
 		return nil, fmt.Errorf("unsupported llm provider %q", provider)
 	}
+	return models, nil
 }
 
 // FallbackModels returns curated default models when discovery is unavailable.
@@ -174,107 +139,5 @@ func fallbackModels(provider string) []ModelOption {
 		}
 	default:
 		return nil
-	}
-}
-
-func listAnthropicModels(ctx context.Context, apiKey string, opts ...option.RequestOption) ([]ModelOption, error) {
-	requestOptions := []option.RequestOption{option.WithAPIKey(apiKey)}
-	requestOptions = append(requestOptions, opts...)
-
-	client := anthropic.NewClient(requestOptions...)
-	pager := client.Models.ListAutoPaging(ctx, anthropic.ModelListParams{})
-
-	var models []ModelOption
-	for pager.Next() {
-		model := pager.Current()
-		models = append(models, ModelOption{
-			ID:                 model.ID,
-			Name:               model.DisplayName,
-			SupportsImageInput: true,
-		})
-	}
-	if err := pager.Err(); err != nil {
-		return nil, err
-	}
-	return models, nil
-}
-
-func listGoogleModels(ctx context.Context, apiKey string, baseURL string, client *http.Client) ([]ModelOption, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"?key="+apiKey, nil)
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("google models list returned %s", resp.Status)
-	}
-
-	var payload struct {
-		Models []struct {
-			Name                      string   `json:"name"`
-			DisplayName               string   `json:"displayName"`
-			SupportedGenerationMethod []string `json:"supportedGenerationMethods"`
-		} `json:"models"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return nil, err
-	}
-
-	var models []ModelOption
-	for _, model := range payload.Models {
-		id := strings.TrimPrefix(model.Name, "models/")
-		if !supportsGenerateContent(model.SupportedGenerationMethod) || !looksLikeGoogleChatModel(id) {
-			continue
-		}
-		models = append(models, ModelOption{
-			ID:                 id,
-			Name:               model.DisplayName,
-			SupportsImageInput: true,
-		})
-	}
-	sort.SliceStable(models, func(i, j int) bool {
-		return rankGoogleModel(models[i].ID) < rankGoogleModel(models[j].ID)
-	})
-	return models, nil
-}
-
-func supportsGenerateContent(methods []string) bool {
-	for _, method := range methods {
-		if method == "generateContent" {
-			return true
-		}
-	}
-	return false
-}
-
-func looksLikeGoogleChatModel(modelID string) bool {
-	if !strings.HasPrefix(modelID, "gemini-") {
-		return false
-	}
-	blocked := []string{"preview", "exp", "tts", "live", "image", "embedding", "aqa"}
-	for _, token := range blocked {
-		if strings.Contains(modelID, token) {
-			return false
-		}
-	}
-	return true
-}
-
-func rankGoogleModel(modelID string) int {
-	switch modelID {
-	case "gemini-2.5-pro":
-		return 0
-	case "gemini-2.5-flash":
-		return 1
-	case "gemini-2.5-flash-lite":
-		return 2
-	default:
-		return 10
 	}
 }

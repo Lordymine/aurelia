@@ -3,70 +3,55 @@ package cron
 import (
 	"context"
 	"fmt"
-	"strconv"
-
-	"github.com/kocar/aurelia/internal/agent"
 )
 
-type AgentCronRuntime struct {
-	executor      AgentExecutor
+// BridgeCronRuntime executes cron jobs via a BridgeExecutor.
+type BridgeCronRuntime struct {
+	executor      BridgeExecutor
 	basePrompt    string
-	allowedTools  []string
-	promptBuilder func(ctx context.Context, job CronJob) (string, []string, error)
+	promptBuilder func(ctx context.Context, job CronJob) (string, error)
 }
 
-func NewAgentCronRuntime(executor AgentExecutor, baseSystemPrompt string, allowedTools []string) *AgentCronRuntime {
-	return &AgentCronRuntime{
-		executor:     executor,
-		basePrompt:   baseSystemPrompt,
-		allowedTools: allowedTools,
+// NewBridgeCronRuntime creates a runtime that uses the bridge executor.
+func NewBridgeCronRuntime(executor BridgeExecutor, baseSystemPrompt string) *BridgeCronRuntime {
+	return &BridgeCronRuntime{
+		executor:   executor,
+		basePrompt: baseSystemPrompt,
 	}
 }
 
-func NewAgentCronRuntimeWithPromptBuilder(executor AgentExecutor, baseSystemPrompt string, allowedTools []string, promptBuilder func(ctx context.Context, job CronJob) (string, []string, error)) *AgentCronRuntime {
-	return &AgentCronRuntime{
+// NewBridgeCronRuntimeWithPromptBuilder creates a runtime with dynamic prompt building.
+func NewBridgeCronRuntimeWithPromptBuilder(executor BridgeExecutor, baseSystemPrompt string, promptBuilder func(ctx context.Context, job CronJob) (string, error)) *BridgeCronRuntime {
+	return &BridgeCronRuntime{
 		executor:      executor,
 		basePrompt:    baseSystemPrompt,
-		allowedTools:  allowedTools,
 		promptBuilder: promptBuilder,
 	}
 }
 
-func (r *AgentCronRuntime) ExecuteJob(ctx context.Context, job CronJob) (string, error) {
-	ctx = agent.WithTeamContext(ctx, formatChatTeamKey(job.TargetChatID), job.OwnerUserID)
-
+// ExecuteJob runs the job via the bridge executor.
+func (r *BridgeCronRuntime) ExecuteJob(ctx context.Context, job CronJob) (string, error) {
 	systemPrompt := r.basePrompt
-	allowedTools := r.allowedTools
 	if r.promptBuilder != nil {
-		prompt, tools, err := r.promptBuilder(ctx, job)
+		prompt, err := r.promptBuilder(ctx, job)
 		if err == nil {
 			systemPrompt = prompt
-			allowedTools = tools
 		}
 	}
-	allowedTools = agent.ResolveAllowedToolsForQuery(job.Prompt, allowedTools)
 
-	_, finalAnswer, err := r.executor.Execute(ctx, systemPrompt, []agent.Message{{
-		Role:    "user",
-		Content: job.Prompt,
-	}}, allowedTools)
-	if err != nil {
-		return "", err
-	}
-	return finalAnswer, nil
+	return r.executor.Execute(ctx, systemPrompt, job.Prompt)
 }
 
-func formatChatTeamKey(chatID int64) string {
-	return strconv.FormatInt(chatID, 10)
-}
-
+// DeliveryFunc is called after a job completes to deliver its output.
 type DeliveryFunc func(ctx context.Context, job CronJob, output string, execErr error) error
 
+// NotifyingRuntime wraps a Runtime and delivers results after execution.
 type NotifyingRuntime struct {
 	inner   Runtime
 	deliver DeliveryFunc
 }
 
+// NewNotifyingRuntime wraps an inner runtime with delivery notification.
 func NewNotifyingRuntime(inner Runtime, deliver DeliveryFunc) *NotifyingRuntime {
 	return &NotifyingRuntime{
 		inner:   inner,
@@ -74,6 +59,7 @@ func NewNotifyingRuntime(inner Runtime, deliver DeliveryFunc) *NotifyingRuntime 
 	}
 }
 
+// ExecuteJob runs the inner runtime and delivers the result.
 func (r *NotifyingRuntime) ExecuteJob(ctx context.Context, job CronJob) (string, error) {
 	if r.inner == nil {
 		return "", fmt.Errorf("inner runtime is required")

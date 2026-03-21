@@ -2,6 +2,7 @@ package llm
 
 import "strings"
 
+// ProviderSpec describes a supported LLM provider for onboarding and config.
 type ProviderSpec struct {
 	ID                  string
 	Label               string
@@ -74,12 +75,14 @@ var providerSpecs = []ProviderSpec{
 	},
 }
 
+// Providers returns a copy of the available provider specs.
 func Providers() []ProviderSpec {
 	specs := make([]ProviderSpec, len(providerSpecs))
 	copy(specs, providerSpecs)
 	return specs
 }
 
+// Provider returns the spec for the given provider name.
 func Provider(provider string) (ProviderSpec, bool) {
 	normalized := NormalizeProvider(provider)
 	for _, spec := range providerSpecs {
@@ -90,6 +93,7 @@ func Provider(provider string) (ProviderSpec, bool) {
 	return ProviderSpec{}, false
 }
 
+// NormalizeProvider returns a canonical lowercase provider name.
 func NormalizeProvider(provider string) string {
 	normalized := strings.TrimSpace(strings.ToLower(provider))
 	if normalized == "" {
@@ -98,6 +102,7 @@ func NormalizeProvider(provider string) string {
 	return normalized
 }
 
+// DefaultModelForProvider returns the default model for the given provider.
 func DefaultModelForProvider(provider string) string {
 	spec, ok := Provider(provider)
 	if !ok {
@@ -106,6 +111,7 @@ func DefaultModelForProvider(provider string) string {
 	return spec.DefaultModel
 }
 
+// ProviderChoices returns the list of provider IDs.
 func ProviderChoices() []string {
 	specs := Providers()
 	choices := make([]string, 0, len(specs))
@@ -115,6 +121,7 @@ func ProviderChoices() []string {
 	return choices
 }
 
+// ProviderLabels returns the list of provider display labels.
 func ProviderLabels() []string {
 	specs := Providers()
 	labels := make([]string, 0, len(specs))

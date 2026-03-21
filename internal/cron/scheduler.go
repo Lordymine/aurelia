@@ -3,15 +3,15 @@ package cron
 import (
 	"context"
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/kocar/aurelia/internal/agent"
-	"github.com/kocar/aurelia/internal/observability"
 )
 
+// Scheduler polls for due cron jobs and executes them.
 type Scheduler struct {
 	store   Store
 	runtime Runtime
@@ -19,6 +19,7 @@ type Scheduler struct {
 	config  SchedulerConfig
 }
 
+// NewScheduler creates a cron scheduler.
 func NewScheduler(store Store, runtime Runtime, clock Clock, config SchedulerConfig) (*Scheduler, error) {
 	if store == nil {
 		return nil, fmt.Errorf("cron store is required")
@@ -40,6 +41,7 @@ func NewScheduler(store Store, runtime Runtime, clock Clock, config SchedulerCon
 	}, nil
 }
 
+// RunDueJobs executes all jobs that are due.
 func (s *Scheduler) RunDueJobs(ctx context.Context) (int, error) {
 	now := s.clock.Now().UTC()
 	jobs, err := s.store.ListDueJobs(ctx, now, 50)
@@ -57,6 +59,7 @@ func (s *Scheduler) RunDueJobs(ctx context.Context) (int, error) {
 	return processed, nil
 }
 
+// Start begins the scheduler polling loop.
 func (s *Scheduler) Start(ctx context.Context) error {
 	ticker := time.NewTicker(s.config.PollInterval)
 	defer ticker.Stop()
@@ -76,13 +79,10 @@ func (s *Scheduler) Start(ctx context.Context) error {
 
 func (s *Scheduler) runSingleJob(ctx context.Context, now time.Time, job CronJob) error {
 	startedAt := now
-	runCtx := agent.WithRunContext(ctx, "cron:"+job.ID+":"+startedAt.Format(time.RFC3339))
-	observability.Log("info", "cron.scheduler", "executing cron job", observability.MergeFields(agent.ContextFields(runCtx), map[string]string{
-		"job_id": job.ID,
-	}))
-	output, runErr := s.runtime.ExecuteJob(runCtx, job)
+	log.Printf("cron.scheduler: executing job %s", job.ID)
+
+	output, runErr := s.runtime.ExecuteJob(ctx, job)
 	finishedAt := s.clock.Now().UTC()
-	duration := finishedAt.Sub(startedAt)
 
 	exec := CronExecution{
 		ID:         uuid.NewString(),
@@ -102,14 +102,6 @@ func (s *Scheduler) runSingleJob(ctx context.Context, now time.Time, job CronJob
 		job.LastStatus = "success"
 		job.LastError = ""
 	}
-	observability.Observe(runCtx, s.config.Observer, observability.Operation{
-		RunID:      agent.ContextFields(runCtx)["run_id"],
-		Component:  "cron.scheduler",
-		Operation:  "execute_job",
-		Status:     exec.Status,
-		DurationMS: duration.Milliseconds(),
-		Summary:    "job_id=" + job.ID,
-	})
 
 	job.LastRunAt = &finishedAt
 
@@ -150,8 +142,8 @@ func computeNextRun(expr string, after time.Time) (time.Time, error) {
 		}
 		return after.UTC().Truncate(time.Minute).Add(interval), nil
 	case isExactNumber(minutePart) && isExactNumber(hourPart):
-		minute, _ := parseInt(minutePart)
-		hour, _ := parseInt(hourPart)
+		minute, _ := parseIntCron(minutePart)
+		hour, _ := parseIntCron(hourPart)
 		next := time.Date(after.Year(), after.Month(), after.Day(), hour, minute, 0, 0, time.UTC)
 		if !next.After(after.UTC()) {
 			next = next.Add(24 * time.Hour)
@@ -163,11 +155,11 @@ func computeNextRun(expr string, after time.Time) (time.Time, error) {
 }
 
 func isExactNumber(v string) bool {
-	_, err := parseInt(v)
+	_, err := parseIntCron(v)
 	return err == nil
 }
 
-func parseInt(v string) (int, error) {
+func parseIntCron(v string) (int, error) {
 	n, err := strconv.Atoi(v)
 	if err != nil {
 		return 0, err

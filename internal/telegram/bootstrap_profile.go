@@ -1,7 +1,9 @@
 package telegram
 
 import (
-	"fmt"
+	"log"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/kocar/aurelia/internal/persona"
@@ -20,7 +22,7 @@ func buildUserTemplate(user *telebot.User) string {
 		}
 	}
 
-	return fmt.Sprintf("# User\nNome: %s\nFuso horario: Relativo a sua localidade.\n", name)
+	return "# User\nNome: " + name + "\nFuso horario: Relativo a sua localidade.\n"
 }
 
 func buildUserTemplateFromProfile(profileText, fallbackName string) string {
@@ -32,7 +34,7 @@ func buildUserTemplateFromProfile(profileText, fallbackName string) string {
 		name = "Nao definido"
 	}
 
-	return fmt.Sprintf("# User\nNome: %s\nFuso horario: Relativo a sua localidade.\nPreferencias: %s\n", name, strings.TrimSpace(profileText))
+	return "# User\nNome: " + name + "\nFuso horario: Relativo a sua localidade.\nPreferencias: " + strings.TrimSpace(profileText) + "\n"
 }
 
 func extractNameFromProfile(profileText string) string {
@@ -53,4 +55,22 @@ func bootstrapFallbackName(user *telebot.User) string {
 	return fallbackName
 }
 
+func (bc *BotController) completeBootstrapProfile(c telebot.Context, state bootstrapState, text string) error {
+	_ = state
 
+	userTemplate := buildUserTemplateFromProfile(text, bootstrapFallbackName(c.Sender()))
+	if err := os.WriteFile(filepath.Join(bc.personasDir, "USER.md"), []byte(userTemplate), 0o644); err != nil {
+		log.Printf("Bootstrap user profile write error: %v\n", err)
+		return SendContextText(c, bootstrapFailureMessage)
+	}
+
+	// TODO: seed identity facts via bridge when memory is wired
+	return SendContextText(c, bootstrapSuccessMessage)
+}
+
+func (bc *BotController) seedBootstrapIdentity(c telebot.Context, preset bootstrapPreset) error {
+	// TODO: seed bootstrap identity facts via bridge when memory is wired
+	_ = c
+	_ = preset
+	return nil
+}

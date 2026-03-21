@@ -3,11 +3,9 @@ package cron
 import (
 	"context"
 	"time"
-
-	"github.com/kocar/aurelia/internal/agent"
-	"github.com/kocar/aurelia/internal/observability"
 )
 
+// CronJob represents a scheduled job.
 type CronJob struct {
 	ID           string
 	OwnerUserID  string
@@ -25,6 +23,7 @@ type CronJob struct {
 	UpdatedAt    time.Time
 }
 
+// CronExecution records the result of a job run.
 type CronExecution struct {
 	ID            string
 	JobID         string
@@ -35,6 +34,7 @@ type CronExecution struct {
 	ErrorMessage  string
 }
 
+// Store persists cron jobs and executions.
 type Store interface {
 	CreateJob(ctx context.Context, job CronJob) error
 	UpdateJob(ctx context.Context, job CronJob) error
@@ -46,14 +46,17 @@ type Store interface {
 	ListExecutionsByJob(ctx context.Context, jobID string) ([]CronExecution, error)
 }
 
-type AgentExecutor interface {
-	Execute(ctx context.Context, systemPrompt string, history []agent.Message, allowedTools []string) ([]agent.Message, string, error)
+// BridgeExecutor is the interface for executing a prompt via the Claude Code bridge.
+type BridgeExecutor interface {
+	Execute(ctx context.Context, systemPrompt string, userPrompt string) (string, error)
 }
 
+// Runtime executes a cron job and returns its output.
 type Runtime interface {
 	ExecuteJob(ctx context.Context, job CronJob) (string, error)
 }
 
+// Clock abstracts time for testing.
 type Clock interface {
 	Now() time.Time
 }
@@ -64,7 +67,7 @@ func (realClock) Now() time.Time {
 	return time.Now().UTC()
 }
 
+// SchedulerConfig configures the cron scheduler.
 type SchedulerConfig struct {
 	PollInterval time.Duration
-	Observer     observability.Recorder
 }

@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kocar/aurelia/internal/agent"
 	"gopkg.in/telebot.v3"
 )
 
@@ -67,17 +66,9 @@ func (bc *BotController) processPhotoInput(c telebot.Context, caption string, ph
 			text = "Analise esta imagem."
 		}
 	}
-	parts := make([]agent.ContentPart, 0, len(photos)+1)
-	parts = append(parts, agent.ContentPart{Type: agent.ContentPartText, Text: text})
-	for _, item := range photos {
-		part, err := bc.downloadPhotoPart(item.photo)
-		if err != nil {
-			log.Println("Failed to process photo:", err)
-			return SendContextText(c, downloadFailureMessage)
-		}
-		parts = append(parts, part)
-	}
-	return bc.processInput(c, text, parts, false)
+
+	// TODO: download and encode photo data for bridge executor
+	return bc.processInput(c, text, nil, false)
 }
 
 func (bc *BotController) handleDocument(c telebot.Context) error {
@@ -113,29 +104,13 @@ func (bc *BotController) handleImageDocument(c telebot.Context, doc *telebot.Doc
 	stopTyping := startChatActionLoop(bc.bot, c.Chat(), telebot.UploadingPhoto, 4*time.Second)
 	defer stopTyping()
 
-	filePath, err := bc.downloadTelegramFile(&doc.File, doc.FileID+"_"+doc.FileName)
-	if err != nil {
-		log.Println("Failed to download image document:", err)
-		return SendContextText(c, downloadFailureMessage)
-	}
-	defer func() { _ = os.Remove(filePath) }()
-
-	data, err := os.ReadFile(filePath)
-	if err != nil {
-		log.Println("Failed to read image document:", err)
-		return SendContextText(c, downloadFailureMessage)
-	}
-
 	text := strings.TrimSpace(c.Message().Caption)
 	if text == "" {
 		text = "Analise esta imagem."
 	}
 
-	parts := []agent.ContentPart{
-		{Type: agent.ContentPartText, Text: text},
-		{Type: agent.ContentPartImage, MIMEType: detectImageMIMEType(doc.FileName, doc.MIME), Data: data},
-	}
-	return bc.processInput(c, text, parts, false)
+	// TODO: download and encode image for bridge executor
+	return bc.processInput(c, text, nil, false)
 }
 
 func (bc *BotController) handleVoice(c telebot.Context) error {
@@ -209,20 +184,6 @@ func detectImageMIMEType(filename, mimeType string) string {
 	return "image/jpeg"
 }
 
-func (bc *BotController) downloadPhotoPart(photo telebot.Photo) (agent.ContentPart, error) {
-	filePath, err := bc.downloadTelegramFile(&photo.File, photo.FileID+"_photo.jpg")
-	if err != nil {
-		return agent.ContentPart{}, err
-	}
-	defer func() { _ = os.Remove(filePath) }()
-
-	data, err := os.ReadFile(filePath)
-	if err != nil {
-		return agent.ContentPart{}, err
-	}
-	return agent.ContentPart{Type: agent.ContentPartImage, MIMEType: "image/jpeg", Data: data}, nil
-}
-
 func (bc *BotController) storeAlbumPhoto(albumID string, messageID int, caption string, photo telebot.Photo) bool {
 	bc.albumMu.Lock()
 	defer bc.albumMu.Unlock()
@@ -286,6 +247,7 @@ func (bc *BotController) transcribeAudioFile(filePath string) (string, error) {
 
 type sendContextTextError string
 
+// SendContextTextError creates a sendContextTextError.
 func SendContextTextError(message string) error {
 	return sendContextTextError(message)
 }

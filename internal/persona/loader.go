@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
-
-	"github.com/kocar/aurelia/internal/memory"
 )
 
 // Config holds the persona frontmatter configuration.
@@ -120,42 +118,3 @@ func canonicalValue(value string) string {
 	}
 	return value
 }
-
-func buildLongTermMemoryBlock(facts []memory.Fact, notes []memory.Note) string {
-	if len(facts) == 0 && len(notes) == 0 {
-		return ""
-	}
-
-	lines := []string{"# LONG-TERM MEMORY"}
-	if len(facts) > 0 {
-		lines = append(lines, "Facts:")
-		for _, fact := range facts {
-			key := strings.TrimSpace(fact.Key)
-			value := strings.TrimSpace(fact.Value)
-			if key == "" || value == "" {
-				continue
-			}
-			lines = append(lines, fmt.Sprintf("- %s: %s", key, value))
-		}
-	}
-	if len(notes) > 0 {
-		lines = append(lines, "Relevant Notes:")
-	}
-	for _, note := range notes {
-		topic := canonicalValue(note.Topic)
-		kind := canonicalValue(note.Kind)
-		summary := strings.TrimSpace(note.Summary)
-		if summary == "" {
-			continue
-		}
-		lines = append(lines, fmt.Sprintf("- [%s/%s] %s", topic, kind, summary))
-	}
-
-	if len(lines) <= 1 {
-		return ""
-	}
-
-	return strings.Join(lines, "\n")
-}
-
-

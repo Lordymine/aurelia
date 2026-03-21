@@ -8,12 +8,8 @@ import (
 
 	"gopkg.in/telebot.v3"
 
-	"github.com/kocar/aurelia/internal/agent"
 	"github.com/kocar/aurelia/internal/config"
-	"github.com/kocar/aurelia/internal/memory"
-	"github.com/kocar/aurelia/internal/observability"
 	"github.com/kocar/aurelia/internal/persona"
-	"github.com/kocar/aurelia/internal/skill"
 	"github.com/kocar/aurelia/pkg/stt"
 )
 
@@ -21,24 +17,13 @@ import (
 type BotController struct {
 	bot              *telebot.Bot
 	config           *config.AppConfig
-	tools            *agent.ToolRegistry
-	memory           *memory.MemoryManager
-	contextPolicy    *memory.ContextPolicy
-	router           *skill.Router
-	executor         *skill.Executor
-	loader           *skill.Loader
 	stt              stt.Transcriber
 	canonical        *persona.CanonicalIdentityService
 	bootstrapMu      sync.Mutex
 	pendingBootstrap map[int64]bootstrapState
 	albumMu          sync.Mutex
 	pendingAlbums    map[string]*pendingAlbum
-	mediaMu          sync.Mutex
-	recentMedia      map[string]recentMedia
-	mcpMu            sync.Mutex
-	recentMCP        map[string]recentMCPContext
 	personasDir      string
-	ops              observability.Recorder
 }
 
 type pendingAlbum struct {
@@ -52,28 +37,12 @@ type albumPhoto struct {
 	photo     telebot.Photo
 }
 
-type recentMedia struct {
-	parts     []agent.ContentPart
-	updatedAt time.Time
-}
-
-type recentMCPContext struct {
-	servers   []string
-	updatedAt time.Time
-}
-
 // NewBotController builds the Telegram controller.
 func NewBotController(
 	cfg *config.AppConfig,
-	registry *agent.ToolRegistry,
-	mem *memory.MemoryManager,
-	r *skill.Router,
-	e *skill.Executor,
-	l *skill.Loader,
 	s stt.Transcriber,
 	canonical *persona.CanonicalIdentityService,
 	personasDir string,
-	ops observability.Recorder,
 ) (*BotController, error) {
 
 	pref := telebot.Settings{
@@ -89,20 +58,11 @@ func NewBotController(
 	bc := &BotController{
 		bot:              b,
 		config:           cfg,
-		tools:            registry,
-		memory:           mem,
-		contextPolicy:    memory.NewContextPolicy(mem),
-		router:           r,
-		executor:         e,
-		loader:           l,
 		stt:              s,
 		canonical:        canonical,
 		pendingBootstrap: make(map[int64]bootstrapState),
 		pendingAlbums:    make(map[string]*pendingAlbum),
-		recentMedia:      make(map[string]recentMedia),
-		recentMCP:        make(map[string]recentMCPContext),
 		personasDir:      personasDir,
-		ops:              ops,
 	}
 
 	bc.setupRoutes()
@@ -112,13 +72,6 @@ func NewBotController(
 // GetBot exposes the underlying Telebot instance.
 func (bc *BotController) GetBot() *telebot.Bot {
 	return bc.bot
-}
-
-func (bc *BotController) GetOpsStore() observability.Recorder {
-	if bc == nil {
-		return nil
-	}
-	return bc.ops
 }
 
 // Start begins Telegram polling.

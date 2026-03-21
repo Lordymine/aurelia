@@ -6,50 +6,26 @@ import (
 	"log"
 	"strings"
 	"time"
-
-	"github.com/kocar/aurelia/internal/memory"
 )
 
+// BuildPrompt builds a system prompt from persona files.
 func (s *CanonicalIdentityService) BuildPrompt(ctx context.Context, userID, conversationID string) (string, []string, error) {
 	return s.BuildPromptForQuery(ctx, userID, conversationID, "")
 }
 
+// BuildPromptForQuery builds a system prompt, optionally tailored to a query.
+// Memory-based retrieval was removed — only persona files and runtime context are used.
 func (s *CanonicalIdentityService) BuildPromptForQuery(ctx context.Context, userID, conversationID, query string) (string, []string, error) {
-	p, identity, err := s.ResolveIdentity(ctx, userID)
+	_ = query
+	_ = userID
+	_ = conversationID
+
+	p, identity, err := s.ResolveIdentity(ctx)
 	if err != nil {
 		return "", nil, err
 	}
 
-	facts, notes, err := s.selectedLongTermMemory(ctx, userID, conversationID, query)
-	if err != nil {
-		return "", nil, err
-	}
-
-	// Runtime tools come from the live ToolRegistry, not from persona markdown.
-	// The persona remains responsible for identity/tone/instructions, while the
-	// execution layer injects the actual capabilities available in this process.
-	return s.appendRuntimeContext(p.RenderSystemPrompt(identity, facts, notes)), nil, nil
-}
-
-func (s *CanonicalIdentityService) selectedLongTermMemory(ctx context.Context, userID, conversationID, query string) ([]memory.Fact, []memory.Note, error) {
-	if s.memory == nil {
-		return nil, nil, nil
-	}
-
-	report, err := s.DebugLongTermMemory(ctx, userID, conversationID, query)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	var facts []memory.Fact
-	var notes []memory.Note
-	for _, scored := range report.SelectedFacts {
-		facts = append(facts, scored.Fact)
-	}
-	for _, scored := range report.SelectedNotes {
-		notes = append(notes, scored.Note)
-	}
-	return facts, notes, nil
+	return s.appendRuntimeContext(p.RenderSystemPrompt(identity)), nil, nil
 }
 
 func (s *CanonicalIdentityService) appendRuntimeContext(prompt string) string {
@@ -89,9 +65,6 @@ func (s *CanonicalIdentityService) appendRuntimeContext(prompt string) string {
 	return runtimeBlock + "\n\n" + prompt
 }
 
-// buildProjectBlock reads the optional project playbook from the working directory
-// and returns a PROJECT CONTEXT markdown block, or an empty string if the path is
-// empty, the file does not exist, or its content is blank.
 func (s *CanonicalIdentityService) buildProjectBlock() string {
 	if s.projectPlaybookPath == "" {
 		return ""
@@ -109,8 +82,6 @@ func (s *CanonicalIdentityService) buildProjectBlock() string {
 	return strings.Join([]string{"# PROJECT CONTEXT", "## Project Playbook", content}, "\n")
 }
 
-// buildOwnerDocsBlock reads optional owner documents and returns an OWNER CONTEXT
-// markdown block, or an empty string if neither file exists or both are empty.
 func (s *CanonicalIdentityService) buildOwnerDocsBlock() string {
 	playbookContent, err := readOptionalFile(s.ownerPlaybookPath)
 	if err != nil {
@@ -141,5 +112,3 @@ func (s *CanonicalIdentityService) buildOwnerDocsBlock() string {
 
 	return strings.Join(sections, "\n")
 }
-
-
