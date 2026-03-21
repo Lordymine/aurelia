@@ -20,6 +20,7 @@ type EditableConfig struct {
 	ZAIAPIKey              string
 	AlibabaAPIKey          string
 	OpenAIAPIKey           string
+	AnthropicAuthMode      string
 	OpenAIAuthMode         string
 	GroqAPIKey             string
 	MaxIterations          int
@@ -76,6 +77,7 @@ func DefaultEditableConfig() EditableConfig {
 	return EditableConfig{
 		LLMProvider:            defaultLLMProvider,
 		LLMModel:               defaultModelForProvider(defaultLLMProvider),
+		AnthropicAuthMode:      "api_key",
 		OpenAIAuthMode:         "api_key",
 		STTProvider:            defaultSTTProvider,
 		TelegramAllowedUserIDs: []int64{},
@@ -95,6 +97,10 @@ func LoadEditable(r *runtime.PathResolver) (*EditableConfig, error) {
 
 // appConfigToEditable converts AppConfig to the flat EditableConfig.
 func appConfigToEditable(cfg *AppConfig) *EditableConfig {
+	anthropicAuthMode := cfg.ProviderAuthMode("anthropic")
+	if anthropicAuthMode == "" {
+		anthropicAuthMode = "api_key"
+	}
 	openAIAuthMode := cfg.ProviderAuthMode("openai")
 	if openAIAuthMode == "" {
 		openAIAuthMode = "api_key"
@@ -105,6 +111,7 @@ func appConfigToEditable(cfg *AppConfig) *EditableConfig {
 		STTProvider:            cfg.STTProvider,
 		TelegramBotToken:       cfg.TelegramBotToken,
 		TelegramAllowedUserIDs: append([]int64(nil), cfg.TelegramAllowedUserIDs...),
+		AnthropicAuthMode:      anthropicAuthMode,
 		AnthropicAPIKey:        cfg.ProviderAPIKey("anthropic"),
 		GoogleAPIKey:           cfg.ProviderAPIKey("google"),
 		KiloAPIKey:             cfg.ProviderAPIKey("kilo"),
@@ -140,7 +147,12 @@ func editableToFileConfig(editable EditableConfig) fileConfig {
 		}
 	}
 
-	maybeSet("anthropic", editable.AnthropicAPIKey)
+	if editable.AnthropicAPIKey != "" || editable.AnthropicAuthMode != "" {
+		providers["anthropic"] = ProviderConfig{
+			APIKey:   editable.AnthropicAPIKey,
+			AuthMode: editable.AnthropicAuthMode,
+		}
+	}
 	maybeSet("google", editable.GoogleAPIKey)
 	maybeSet("kilo", editable.KiloAPIKey)
 	maybeSet("kimi", editable.KimiAPIKey)

@@ -25,6 +25,11 @@ func (u *onboardingUI) View(resolver *runtime.PathResolver) string {
 		b.WriteString("Select the main chat model provider.\n\n")
 		b.WriteString(renderMenu(llmProviderLabels(), u.menuIndex))
 		b.WriteString("\nUse arrows and Enter.\n")
+	case stepAnthropicAuthMode:
+		b.WriteString("Anthropic Auth Mode\n")
+		b.WriteString("Choose whether Anthropic should use an API key or a subscription (Max plan).\n\n")
+		b.WriteString(renderMenu([]string{"API key", "Subscription (Max plan)"}, u.menuIndex))
+		b.WriteString("\nUse arrows and Enter. Use left to go back.\n")
 	case stepOpenAIAuthMode:
 		b.WriteString("OpenAI Auth Mode\n")
 		b.WriteString("Choose whether OpenAI should use an API key or the local Codex CLI.\n\n")
@@ -71,11 +76,16 @@ func (u *onboardingUI) View(resolver *runtime.PathResolver) string {
 		b.WriteString("Review & Save\n")
 		b.WriteString("Check the config before saving.\n\n")
 		_, _ = fmt.Fprintf(&b, "LLM provider: %s\n", strings.ToUpper(u.cfg.LLMProvider))
+		if config.NormalizeProvider(u.cfg.LLMProvider) == "anthropic" {
+			_, _ = fmt.Fprintf(&b, "Anthropic auth mode: %s\n", u.cfg.AnthropicAuthMode)
+		}
 		if u.cfg.LLMProvider == "openai" {
 			_, _ = fmt.Fprintf(&b, "OpenAI auth mode: %s\n", u.cfg.OpenAIAuthMode)
 		}
 		_, _ = fmt.Fprintf(&b, "LLM model: %s\n", u.cfg.LLMModel)
-		if usesOpenAICodex(u.cfg) {
+		if usesAnthropicSubscription(u.cfg) {
+			_, _ = fmt.Fprintf(&b, "Anthropic auth: subscription (no API key)\n")
+		} else if usesOpenAICodex(u.cfg) {
 			_, _ = fmt.Fprintf(&b, "OpenAI Codex login: run `aurelia auth openai`\n")
 		} else {
 			_, _ = fmt.Fprintf(&b, "%s: %s\n", llmKeyLabel(u.cfg.LLMProvider), maskSecret(currentLLMKey(u.cfg)))
@@ -115,6 +125,8 @@ func (u *onboardingUI) HandleKey(ev keyEvent) (saved bool, cancelled bool, err e
 	switch u.step {
 	case stepLLMProvider:
 		return u.handleMenuKey(ev, llmProviderChoices(), nextOnboardStep(u.cfg, stepLLMProvider), stepLLMProvider)
+	case stepAnthropicAuthMode:
+		return u.handleAnthropicAuthModeMenuKey(ev)
 	case stepOpenAIAuthMode:
 		return u.handleOpenAIAuthModeMenuKey(ev)
 	case stepOpenAICodexLogin:
@@ -150,6 +162,25 @@ func (u *onboardingUI) handleMenuKey(ev keyEvent, values []string, next onboardS
 		if u.step != prev {
 			u.setStep(prev)
 		}
+	case keyQuit:
+		return false, true, nil
+	}
+	return false, false, nil
+}
+
+func (u *onboardingUI) handleAnthropicAuthModeMenuKey(ev keyEvent) (bool, bool, error) {
+	options := []string{"api_key", "subscription"}
+	switch ev.code {
+	case keyUp:
+		u.menuIndex = wrapIndex(u.menuIndex-1, len(options))
+	case keyDown:
+		u.menuIndex = wrapIndex(u.menuIndex+1, len(options))
+	case keyEnter:
+		u.cfg.AnthropicAuthMode = options[u.menuIndex]
+		u.setStep(nextOnboardStep(u.cfg, stepAnthropicAuthMode))
+	case keyLeft:
+		u.setStep(stepLLMProvider)
+		u.menuIndex = selectedProviderIndex(u.cfg.LLMProvider)
 	case keyQuit:
 		return false, true, nil
 	}

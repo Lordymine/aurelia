@@ -20,6 +20,7 @@ type onboardStep int
 
 const (
 	stepLLMProvider onboardStep = iota
+	stepAnthropicAuthMode
 	stepOpenAIAuthMode
 	stepOpenAICodexLogin
 	stepLLMKey
@@ -121,6 +122,9 @@ func runOnboardPrompt(stdin io.Reader, stdout io.Writer, resolver *runtime.PathR
 	}
 
 	current.LLMProvider, _ = promptChoice(reader, stdout, "LLM provider", current.LLMProvider, llmProviderChoices())
+	if config.NormalizeProvider(current.LLMProvider) == "anthropic" {
+		current.AnthropicAuthMode, _ = promptChoice(reader, stdout, "Anthropic auth mode", current.AnthropicAuthMode, []string{"api_key", "subscription"})
+	}
 	if current.LLMProvider == "openai" {
 		current.OpenAIAuthMode, _ = promptChoice(reader, stdout, "OpenAI auth mode", current.OpenAIAuthMode, []string{"api_key", "codex"})
 	}
@@ -128,7 +132,11 @@ func runOnboardPrompt(stdin io.Reader, stdout io.Writer, resolver *runtime.PathR
 		return err
 	}
 
-	if usesOpenAICodex(*current) {
+	if usesAnthropicSubscription(*current) {
+		if err := writef(stdout, "Anthropic auth mode: subscription (no API key needed).\n\n"); err != nil {
+			return err
+		}
+	} else if usesOpenAICodex(*current) {
 		if err := writef(stdout, "OpenAI auth mode: codex CLI (experimental). Starting device auth now.\n\n"); err != nil {
 			return err
 		}
@@ -220,6 +228,9 @@ func newOnboardingUI(cfg config.EditableConfig) *onboardingUI {
 	}
 	if cfg.LLMModel == "" {
 		cfg.LLMModel = config.DefaultEditableConfig().LLMModel
+	}
+	if cfg.AnthropicAuthMode == "" {
+		cfg.AnthropicAuthMode = "api_key"
 	}
 	if cfg.OpenAIAuthMode == "" {
 		cfg.OpenAIAuthMode = "api_key"
