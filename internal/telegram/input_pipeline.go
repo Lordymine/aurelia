@@ -52,6 +52,7 @@ func (bc *BotController) processInput(c telebot.Context, text string, parts [][]
 		Command: "query",
 		Prompt:  userText,
 		Options: bridge.RequestOptions{
+			Model:          bc.config.DefaultModel,
 			SystemPrompt:   systemPrompt,
 			MaxTurns:       bc.config.MaxIterations,
 			PermissionMode: "auto",
@@ -62,6 +63,9 @@ func (bc *BotController) processInput(c telebot.Context, text string, parts [][]
 		if agent.Model != "" {
 			req.Options.Model = agent.Model
 		}
+		if agent.Cwd != "" {
+			req.Options.Cwd = agent.Cwd
+		}
 		if len(agent.MCPServers) > 0 {
 			req.Options.MCPServers = agent.MCPServers
 		}
@@ -71,7 +75,8 @@ func (bc *BotController) processInput(c telebot.Context, text string, parts [][]
 	}
 
 	// 4. Execute via bridge (streaming)
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
 	ch, err := bc.bridge.Execute(ctx, req)
 	if err != nil {
 		log.Printf("Bridge execute error: %v", err)
@@ -103,7 +108,8 @@ func (bc *BotController) buildSystemPrompt(userText string, agent *agents.Agent)
 
 	// Memory injection
 	if bc.memory != nil {
-		ctx := context.Background()
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
 		memoryBlock, err := bc.memory.Inject(ctx, userText, bc.config.MemoryWindowSize)
 		if err != nil {
 			log.Printf("Memory injection error (non-fatal): %v", err)
@@ -187,7 +193,8 @@ func (bc *BotController) saveToMemory(userText, response string) {
 		return
 	}
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 	content := fmt.Sprintf("User: %s\nAssistant: %s", userText, truncate(response, 500))
 	if err := bc.memory.Save(ctx, content, "conversation", "telegram"); err != nil {
 		log.Printf("Memory save error (non-fatal): %v", err)
