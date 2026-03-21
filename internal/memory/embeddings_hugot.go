@@ -27,10 +27,12 @@ func NewHugotEmbedder(modelDir string) (*HugotEmbedder, error) {
 	}
 
 	// Download model if not already cached
+	downloadOpts := hugot.NewDownloadOptions()
+	downloadOpts.OnnxFilePath = "onnx/model.onnx"
 	modelPath, err := hugot.DownloadModel(
 		"sentence-transformers/all-MiniLM-L6-v2",
 		modelDir,
-		hugot.NewDownloadOptions(),
+		downloadOpts,
 	)
 	if err != nil {
 		session.Destroy()
