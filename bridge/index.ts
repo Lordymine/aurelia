@@ -89,6 +89,13 @@ async function handleQuery(req: Request): Promise<void> {
 
   log(`query start — model=${sdkOptions.model ?? "default"} prompt="${req.prompt.slice(0, 80)}..."`);
 
+  const timeoutMs = 10 * 60 * 1000;
+  const timeout = setTimeout(() => {
+    log("query timeout — no result after 10 minutes");
+    emit({ event: "error", message: "query timeout: no result after 10 minutes" });
+    process.exit(1);
+  }, timeoutMs);
+
   try {
     const stream = query({
       prompt: req.prompt,
@@ -177,6 +184,8 @@ async function handleQuery(req: Request): Promise<void> {
     const errMsg = err instanceof Error ? err.message : String(err);
     log(`query error: ${errMsg}`);
     emit({ event: "error", message: errMsg });
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
