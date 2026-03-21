@@ -58,16 +58,30 @@ func (bc *BotController) processPhotoInput(c telebot.Context, caption string, ph
 	stopTyping := startChatActionLoop(bc.bot, c.Chat(), telebot.UploadingPhoto, 4*time.Second)
 	defer stopTyping()
 
-	text := caption
+	text := strings.TrimSpace(caption)
+
+	var photoPaths []string
+	for _, p := range photos {
+		filePath, err := bc.downloadTelegramFile(&p.photo.File, fmt.Sprintf("photo_%d.jpg", p.messageID))
+		if err != nil {
+			log.Printf("Failed to download photo: %v", err)
+			continue
+		}
+		photoPaths = append(photoPaths, filePath)
+	}
+
 	if text == "" {
-		if len(photos) > 1 {
+		if len(photoPaths) > 1 {
 			text = "Analise estas imagens."
 		} else {
 			text = "Analise esta imagem."
 		}
 	}
 
-	// TODO: download and encode photo data for bridge executor
+	for _, path := range photoPaths {
+		text += fmt.Sprintf("\n\nImagem: %s", path)
+	}
+
 	return bc.processInput(c, text, nil, false)
 }
 
@@ -109,7 +123,13 @@ func (bc *BotController) handleImageDocument(c telebot.Context, doc *telebot.Doc
 		text = "Analise esta imagem."
 	}
 
-	// TODO: download and encode image for bridge executor
+	filePath, err := bc.downloadTelegramFile(&doc.File, doc.FileID+"_"+doc.FileName)
+	if err != nil {
+		log.Printf("Failed to download image document: %v", err)
+		return bc.processInput(c, text, nil, false)
+	}
+
+	text += fmt.Sprintf("\n\nImagem: %s", filePath)
 	return bc.processInput(c, text, nil, false)
 }
 
