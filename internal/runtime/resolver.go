@@ -53,3 +53,9 @@ func (r *PathResolver) Skills() string { return filepath.Join(r.root, "skills") 
 
 // Logs returns the path to the logs/ subdirectory.
 func (r *PathResolver) Logs() string { return filepath.Join(r.root, "logs") }
+
+// Agents returns the path to the agents/ subdirectory.
+func (r *PathResolver) Agents() string { return filepath.Join(r.root, "agents") }
+
+// DBPath returns the path to a named database file inside the data/ subdirectory.
+func (r *PathResolver) DBPath(name string) string { return filepath.Join(r.Data(), name) }

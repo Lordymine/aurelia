@@ -1,3 +1,3 @@
 package main
 
-// Cron support removed — will be rebuilt when bridge executor is wired.
+// Cron support is now wired directly in app.go via BridgeCronRuntime and Scheduler.

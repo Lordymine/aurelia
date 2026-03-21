@@ -1,3 +1,3 @@
 package main
 
-// Wiring helpers removed — will be rebuilt when bridge executor is wired.
+// Wiring helpers are now inlined in app.go (setProviderEnv, findBridgeDir, createEmbedder, registerScheduledAgents).
