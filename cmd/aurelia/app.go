@@ -52,11 +52,20 @@ func bootstrapApp() (*app, error) {
 	// 3. Set provider env vars for Bridge
 	setProviderEnv(cfg)
 
-	// 4. Create Bridge
+	// 4. Create Bridge (auto-setup on first run)
 	bridgeDir := findBridgeDir()
+	if bridgeDir == "" {
+		home, _ := os.UserHomeDir()
+		targetDir := filepath.Join(home, ".aurelia", "bridge")
+		var setupErr error
+		bridgeDir, setupErr = bridge.EnsureBridge(targetDir, bridge.EmbeddedBundleJS)
+		if setupErr != nil {
+			return nil, fmt.Errorf("setup bridge: %w", setupErr)
+		}
+	}
 	bundlePath := filepath.Join(bridgeDir, "bundle.js")
 	if _, err := os.Stat(bundlePath); os.IsNotExist(err) {
-		bundlePath = "" // fallback to npx tsx index.ts
+		bundlePath = ""
 	}
 	br := bridge.New(bridgeDir, bundlePath)
 
@@ -289,7 +298,6 @@ func findBridgeDir() string {
 		filepath.Join(home, ".aurelia", "bridge"),          // user data dir
 	}
 	for _, c := range candidates {
-		// Check for bundle.js (production) or index.ts (development)
 		if _, err := os.Stat(filepath.Join(c, "bundle.js")); err == nil {
 			return c
 		}
@@ -297,7 +305,7 @@ func findBridgeDir() string {
 			return c
 		}
 	}
-	return "bridge"
+	return "" // not found — triggers auto-setup
 }
 
 // createEmbedder builds the embedding provider.
