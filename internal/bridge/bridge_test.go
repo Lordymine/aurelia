@@ -47,7 +47,7 @@ func newMockBridge(t *testing.T, dir string, jsBody string) *Bridge {
 	if err := os.WriteFile(filepath.Join(dir, "mock.js"), []byte(jsBody), 0644); err != nil {
 		t.Fatal(err)
 	}
-	b := New(dir)
+	b := New(dir, "")
 	b.command = "node"
 	b.args = []string{"mock.js"}
 	t.Cleanup(func() { b.Stop() })
@@ -360,7 +360,7 @@ func TestBridge_Stop_And_Restart(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	b := New(dir)
+	b := New(dir, "")
 	b.command = "node"
 	b.args = []string{"mock.js"}
 	t.Cleanup(func() { b.Stop() })

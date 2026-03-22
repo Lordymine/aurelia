@@ -40,12 +40,19 @@ type Bridge struct {
 	done chan struct{}
 }
 
-// New creates a Bridge that will spawn a long-lived process in bridgeDir.
-func New(bridgeDir string) *Bridge {
+// New creates a Bridge that runs the given bundlePath with node.
+// If bundlePath is empty, falls back to npx tsx index.ts in bridgeDir.
+func New(bridgeDir string, bundlePath string) *Bridge {
+	cmd := "node"
+	args := []string{bundlePath}
+	if bundlePath == "" {
+		cmd = "npx"
+		args = []string{"tsx", "index.ts"}
+	}
 	return &Bridge{
 		bridgeDir: bridgeDir,
-		command:   "npx",
-		args:      []string{"tsx", "index.ts"},
+		command:   cmd,
+		args:      args,
 		pending:   make(map[string]chan Event),
 	}
 }
