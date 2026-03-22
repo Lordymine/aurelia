@@ -146,10 +146,10 @@ func sendTextReplyWithSender(sender messageSender, chat *telebot.Chat, text stri
 }
 
 func ReactToMessage(bot *telebot.Bot, chat *telebot.Chat, messageID int, emoji string) {
-	if messageID == 0 {
+	if messageID == 0 || chat == nil {
 		return
 	}
-	msg := &telebot.Message{ID: messageID}
+	msg := &telebot.Message{ID: messageID, Chat: chat}
 	err := bot.React(chat, msg, telebot.ReactionOptions{
 		Reactions: []telebot.Reaction{{Type: "emoji", Emoji: emoji}},
 	})
