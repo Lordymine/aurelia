@@ -49,39 +49,43 @@ func NewBridgeCronRuntime(
 	}
 }
 
-// ExecuteJob resolves the agent, builds the system prompt with persona and
-// memory context, executes via Bridge, and saves the result to memory.
+// ExecuteJob builds the system prompt with persona and memory context,
+// optionally resolves an agent, executes via Bridge, and saves the result.
 func (r *BridgeCronRuntime) ExecuteJob(ctx context.Context, job CronJob) (string, error) {
-	// 1. Get agent config
-	agent := r.agents.Get(job.AgentName)
-	if agent == nil {
-		return "", fmt.Errorf("agent %q not found", job.AgentName)
-	}
-
-	// 2. Build system prompt from persona
+	// 1. Build system prompt from persona
 	basePrompt, err := r.persona.BuildPrompt()
 	if err != nil {
 		return "", fmt.Errorf("build persona prompt: %w", err)
 	}
-	systemPrompt := basePrompt + "\n\n" + agent.Prompt
+	systemPrompt := basePrompt
 
-	// 3. Inject memory context (best effort — failure is non-fatal)
-	if memCtx, err := r.memory.Inject(ctx, job.Prompt, 10); err == nil && memCtx != "" {
-		systemPrompt += "\n\n" + memCtx
+	// 2. Build request options
+	opts := bridge.RequestOptions{
+		SystemPrompt:   systemPrompt,
+		PermissionMode: "bypassPermissions",
 	}
 
-	// 4. Execute via Bridge
+	// 3. Apply agent config if available
+	agent := r.agents.Get(job.AgentName)
+	if agent != nil {
+		systemPrompt += "\n\n" + agent.Prompt
+		opts.SystemPrompt = systemPrompt
+		opts.Model = agent.Model
+		opts.Cwd = agent.Cwd
+		opts.AllowedTools = agent.AllowedTools
+		opts.MCPServers = agent.MCPServers
+	}
+
+	// 4. Inject memory context (best effort)
+	if memCtx, err := r.memory.Inject(ctx, job.Prompt, 10); err == nil && memCtx != "" {
+		opts.SystemPrompt += "\n\n" + memCtx
+	}
+
+	// 5. Execute via Bridge
 	result, err := r.bridge.Execute(ctx, bridge.Request{
 		Command: "query",
 		Prompt:  job.Prompt,
-		Options: bridge.RequestOptions{
-			Model:          agent.Model,
-			Cwd:            agent.Cwd,
-			SystemPrompt:   systemPrompt,
-			AllowedTools:   agent.AllowedTools,
-			MCPServers:     agent.MCPServers,
-			PermissionMode: "bypassPermissions",
-		},
+		Options: opts,
 	})
 	if err != nil {
 		return "", fmt.Errorf("bridge execute: %w", err)
@@ -90,8 +94,12 @@ func (r *BridgeCronRuntime) ExecuteJob(ctx context.Context, job CronJob) (string
 		return "", fmt.Errorf("bridge error: %s", result.Message)
 	}
 
-	// 5. Save result to memory (best effort)
-	_ = r.memory.Save(ctx, result.Content, "conversation", agent.Name)
+	// 6. Save result to memory (best effort)
+	agentName := job.AgentName
+	if agentName == "" {
+		agentName = "cron"
+	}
+	_ = r.memory.Save(ctx, result.Content, "conversation", agentName)
 
 	return result.Content, nil
 }

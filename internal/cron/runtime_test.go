@@ -132,10 +132,12 @@ func TestBridgeCronRuntime_ExecuteJob(t *testing.T) {
 	}
 }
 
-func TestBridgeCronRuntime_AgentNotFound(t *testing.T) {
+func TestBridgeCronRuntime_NoAgent(t *testing.T) {
 	t.Parallel()
 
-	executor := &fakeBridgeExecutor{}
+	executor := &fakeBridgeExecutor{
+		result: &bridge.Event{Type: "result", Content: "done without agent"},
+	}
 	registry := &fakeRegistry{agents: map[string]*agents.Agent{}}
 	persona := &fakePersona{prompt: "base"}
 	mem := &fakeMemory{}
@@ -143,17 +145,16 @@ func TestBridgeCronRuntime_AgentNotFound(t *testing.T) {
 	runtime := NewBridgeCronRuntime(executor, registry, persona, mem)
 
 	job := CronJob{
-		ID:        "job-2",
-		AgentName: "nonexistent",
-		Prompt:    "test",
+		ID:     "job-2",
+		Prompt: "test",
 	}
 
-	_, err := runtime.ExecuteJob(context.Background(), job)
-	if err == nil {
-		t.Fatal("expected error for missing agent")
-	}
-	if !contains(err.Error(), "not found") {
+	output, err := runtime.ExecuteJob(context.Background(), job)
+	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if output != "done without agent" {
+		t.Fatalf("output = %q", output)
 	}
 }
 
