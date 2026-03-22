@@ -20,13 +20,45 @@ func (bc *BotController) processInput(c telebot.Context, text string, parts [][]
 		return bc.completeBootstrapProfile(c, state, text)
 	}
 
-	stopTyping := startChatActionLoop(bc.bot, c.Chat(), telebot.Typing, 4*time.Second)
-	defer stopTyping()
+	// 1. Route to agent (sync — fast)
+	agent := bc.routeAgent(text)
 
-	// 1. Route to agent via registry
+	// Strip @agent prefix from user text if agent was routed
+	userText := text
+	if agent != nil {
+		if idx := strings.IndexByte(text[1:], ' '); idx != -1 {
+			userText = strings.TrimSpace(text[idx+2:])
+		} else {
+			userText = ""
+		}
+	}
+
+	if userText == "" {
+		userText = text
+	}
+
+	// 2. Build system prompt (sync — fast)
+	systemPrompt, err := bc.buildSystemPrompt(userText, agent, c.Chat().ID)
+	if err != nil {
+		log.Printf("Failed to build system prompt: %v", err)
+		return SendError(bc.bot, c.Chat(), "Falha ao montar o prompt de sistema.")
+	}
+
+	// 3. Build bridge request (sync)
+	req := bc.buildBridgeRequest(userText, systemPrompt, agent, c.Chat().ID)
+
+	// 4. Launch async execution — don't block the handler
+	chatID := c.Chat().ID
+	go bc.executeAsync(chatID, req, userText)
+
+	return nil
+}
+
+// routeAgent resolves which agent should handle the message, first by @name
+// prefix, then by LLM classification if agents are configured.
+func (bc *BotController) routeAgent(text string) *agents.Agent {
 	agent := bc.agents.Route(text)
 
-	// If no @name match and agents exist, try LLM classification
 	if agent == nil && bc.agents != nil && len(bc.agents.Agents()) > 0 {
 		classifyPrompt := bc.agents.ClassifyPrompt(text)
 		if classifyPrompt != "" {
@@ -51,28 +83,12 @@ func (bc *BotController) processInput(c telebot.Context, text string, parts [][]
 		}
 	}
 
-	// Strip @agent prefix from user text if agent was routed
-	userText := text
-	if agent != nil {
-		if idx := strings.IndexByte(text[1:], ' '); idx != -1 {
-			userText = strings.TrimSpace(text[idx+2:])
-		} else {
-			userText = ""
-		}
-	}
+	return agent
+}
 
-	if userText == "" {
-		userText = text
-	}
-
-	// 2. Build system prompt: persona + agent prompt + cron instructions + memory
-	systemPrompt, err := bc.buildSystemPrompt(userText, agent, c.Chat().ID)
-	if err != nil {
-		log.Printf("Failed to build system prompt: %v", err)
-		return SendError(bc.bot, c.Chat(), "Falha ao montar o prompt de sistema.")
-	}
-
-	// 3. Build bridge request
+// buildBridgeRequest assembles the bridge.Request with agent overrides, session
+// resume, and working directory.
+func (bc *BotController) buildBridgeRequest(userText, systemPrompt string, agent *agents.Agent, chatID int64) bridge.Request {
 	req := bridge.Request{
 		Command: "query",
 		Prompt:  userText,
@@ -100,28 +116,120 @@ func (bc *BotController) processInput(c telebot.Context, text string, parts [][]
 	}
 
 	// Resume previous session for conversation continuity
-	if sessionID := bc.sessions.Get(c.Chat().ID); sessionID != "" {
+	if sessionID := bc.sessions.Get(chatID); sessionID != "" {
 		req.Options.Resume = sessionID
 	}
 
 	// Apply chat-level cwd if no agent overrides it
 	if req.Options.Cwd == "" {
-		if chatCwd := bc.sessions.GetCwd(c.Chat().ID); chatCwd != "" {
+		if chatCwd := bc.sessions.GetCwd(chatID); chatCwd != "" {
 			req.Options.Cwd = chatCwd
 		}
 	}
 
-	// 4. Execute via bridge (streaming)
+	return req
+}
+
+// executeAsync runs the bridge execution in a goroutine with its own typing
+// indicator and progress reporter. Errors are sent directly to the chat since
+// the original handler has already returned.
+func (bc *BotController) executeAsync(chatID int64, req bridge.Request, userText string) {
+	chat := &telebot.Chat{ID: chatID}
+
+	// Start typing indicator
+	stopTyping := startChatActionLoop(bc.bot, chat, telebot.Typing, 4*time.Second)
+	defer stopTyping()
+
+	// Progress reporter
+	progress := newProgressReporter(bc.bot, chat)
+	defer progress.Delete()
+
+	// Execute via bridge
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
+
 	ch, err := bc.bridge.Execute(ctx, req)
 	if err != nil {
 		log.Printf("Bridge execute error: %v", err)
-		return SendError(bc.bot, c.Chat(), "Falha ao conectar com o processador.")
+		_ = SendError(bc.bot, chat, "Falha ao conectar com o processador.")
+		return
 	}
 
-	// 5. Process events
-	return bc.processBridgeEvents(c, ch, userText)
+	// Process events
+	bc.processBridgeEventsAsync(chat, ch, progress, userText)
+}
+
+// processBridgeEventsAsync reads bridge events and sends responses to the
+// Telegram chat. Unlike the old processBridgeEvents, it takes a *telebot.Chat
+// instead of telebot.Context, since the handler has already returned.
+func (bc *BotController) processBridgeEventsAsync(chat *telebot.Chat, ch <-chan bridge.Event, progress *progressReporter, userText string) {
+	var assistantText strings.Builder
+
+	for ev := range ch {
+		switch ev.Type {
+		case "system":
+			if ev.SessionID != "" {
+				bc.sessions.Set(chat.ID, ev.SessionID)
+			}
+
+		case "tool_use":
+			toolName := ev.Name
+			if toolName == "" {
+				toolName = "tool"
+			}
+			progress.ReportTool(toolName)
+
+		case "assistant":
+			content := ev.Text
+			if content == "" {
+				content = ev.Content
+			}
+			assistantText.WriteString(content)
+
+		case "result":
+			content := ev.Text
+			if content == "" {
+				content = ev.Content
+			}
+			if content != "" {
+				assistantText.Reset()
+				assistantText.WriteString(content)
+			}
+
+			finalText := strings.TrimSpace(assistantText.String())
+			if finalText == "" {
+				finalText = "(sem resposta)"
+			}
+
+			bc.saveToMemory(userText, finalText)
+			_ = SendText(bc.bot, chat, finalText)
+			return
+
+		case "error":
+			errMsg := ev.Message
+			if errMsg == "" {
+				errMsg = ev.Content
+			}
+			if errMsg == "" {
+				errMsg = "Erro desconhecido no processador."
+			}
+			log.Printf("Bridge error: %s", errMsg)
+			_ = SendError(bc.bot, chat, errMsg)
+			return
+
+		default:
+			log.Printf("Bridge event (ignored): %s", ev.Type)
+		}
+	}
+
+	// Channel closed without terminal event
+	finalText := strings.TrimSpace(assistantText.String())
+	if finalText != "" {
+		bc.saveToMemory(userText, finalText)
+		_ = SendText(bc.bot, chat, finalText)
+	} else {
+		_ = SendError(bc.bot, chat, "O processador encerrou sem resposta.")
+	}
 }
 
 // buildSystemPrompt assembles the system prompt from persona, agent, cron instructions, and memory.
@@ -204,80 +312,6 @@ CRITICAL RULES FOR CRON PROMPTS:
 		bin,
 		bin, bin,
 	)
-}
-
-// processBridgeEvents reads bridge events and sends responses to the Telegram chat.
-func (bc *BotController) processBridgeEvents(c telebot.Context, ch <-chan bridge.Event, userText string) error {
-	progress := newProgressReporter(bc.bot, c.Chat())
-	defer progress.Delete()
-
-	var assistantText strings.Builder
-
-	for ev := range ch {
-		switch ev.Type {
-		case "tool_use":
-			toolName := ev.Name
-			if toolName == "" {
-				toolName = "tool"
-			}
-			progress.ReportTool(toolName)
-
-		case "assistant":
-			content := ev.Text
-			if content == "" {
-				content = ev.Content
-			}
-			assistantText.WriteString(content)
-
-		case "result":
-			content := ev.Text
-			if content == "" {
-				content = ev.Content
-			}
-			if content != "" {
-				assistantText.Reset()
-				assistantText.WriteString(content)
-			}
-
-			finalText := strings.TrimSpace(assistantText.String())
-			if finalText == "" {
-				finalText = "(sem resposta)"
-			}
-
-			// Save conversation to memory
-			bc.saveToMemory(userText, finalText)
-
-			return SendText(bc.bot, c.Chat(), finalText)
-
-		case "error":
-			errMsg := ev.Message
-			if errMsg == "" {
-				errMsg = ev.Content
-			}
-			if errMsg == "" {
-				errMsg = "Erro desconhecido no processador."
-			}
-			log.Printf("Bridge error: %s", errMsg)
-			return SendError(bc.bot, c.Chat(), errMsg)
-
-		case "system":
-			if ev.SessionID != "" {
-				bc.sessions.Set(c.Chat().ID, ev.SessionID)
-			}
-
-		default:
-			log.Printf("Bridge event (ignored): %s", ev.Type)
-		}
-	}
-
-	// Channel closed without terminal event
-	finalText := strings.TrimSpace(assistantText.String())
-	if finalText != "" {
-		bc.saveToMemory(userText, finalText)
-		return SendText(bc.bot, c.Chat(), finalText)
-	}
-
-	return SendError(bc.bot, c.Chat(), "O processador encerrou sem resposta.")
 }
 
 // saveToMemory stores the conversation exchange in semantic memory.
