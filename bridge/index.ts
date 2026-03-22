@@ -18,7 +18,7 @@ interface RequestOptions {
   permission_mode?: string;
   mcp_servers?: Record<string, MCPServerConfig>;
   allowed_tools?: string[];
-  no_user_settings?: boolean;
+  disabled_tools?: string[];
 }
 
 interface Request {
@@ -65,11 +65,12 @@ function buildSDKOptions(opts: RequestOptions | undefined) {
   if (opts.mcp_servers) sdkOpts.mcpServers = opts.mcp_servers;
   if (opts.allowed_tools) sdkOpts.allowedTools = opts.allowed_tools;
 
-  // Load user settings unless explicitly disabled (e.g. cron jobs)
-  if (opts.no_user_settings) {
-    sdkOpts.settingSources = [];
-  } else {
-    sdkOpts.settingSources = ["user", "project", "local"];
+  // Always load user settings (plugins, MCPs, skills, hooks)
+  sdkOpts.settingSources = ["user", "project", "local"];
+
+  // Disable specific tools (e.g. Telegram MCP in cron to avoid duplicate delivery)
+  if (opts.disabled_tools && opts.disabled_tools.length > 0) {
+    sdkOpts.disallowedTools = opts.disabled_tools;
   }
 
   return sdkOpts;
