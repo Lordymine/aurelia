@@ -170,32 +170,26 @@ func (bc *BotController) buildCronInstructions(chatID int64) string {
 	}
 	chatFlag := fmt.Sprintf("--chat-id %d", chatID)
 
-	return fmt.Sprintf(`## Scheduling Tasks
+	return fmt.Sprintf(`## Scheduling Tasks — MANDATORY
 
-When the user asks to schedule or automate something recurring, use the Aurelia cron CLI:
+CRITICAL: You MUST use the Aurelia cron CLI for ALL scheduling. NEVER use your internal scheduling tools — they die with the session. The Aurelia cron is persistent and delivers results to Telegram automatically.
 
-To create a recurring schedule:
+Recurring schedule:
 `+"```bash\n%s cron add \"<cron-expression>\" \"<prompt>\" %s\n```"+`
 
-To create a one-time schedule:
+One-time schedule:
 `+"```bash\n%s cron once \"<ISO-timestamp>\" \"<prompt>\" %s\n```"+`
 
-To list existing schedules:
+List schedules:
 `+"```bash\n%s cron list %s\n```"+`
 
-To delete a schedule:
-`+"```bash\n%s cron del <job-id>\n```"+`
+Delete: `+"`%s cron del <job-id>`"+`
+Pause: `+"`%s cron pause <job-id>`"+`
+Resume: `+"`%s cron resume <job-id>`"+`
 
-To pause or resume a schedule:
-`+"```bash\n%s cron pause <job-id>\n%s cron resume <job-id>\n```"+`
+Cron expressions: "30 8 * * *" = daily 8:30 | "0 9 * * 1" = Monday 9:00 | "0 */2 * * *" = every 2h
 
-Examples of cron expressions:
-- "30 8 * * *" = every day at 8:30
-- "0 9 * * 1" = every Monday at 9:00
-- "0 */2 * * *" = every 2 hours
-
-The --chat-id flag ensures the result is delivered to the correct Telegram chat.
-Always confirm with the user before creating a schedule.`,
+The --chat-id flag is REQUIRED — it ensures results are delivered to this Telegram chat.`,
 		bin, chatFlag,
 		bin, chatFlag,
 		bin, chatFlag,
