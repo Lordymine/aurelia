@@ -52,16 +52,16 @@ func bootstrapApp() (*app, error) {
 	// 3. Set provider env vars for Bridge
 	setProviderEnv(cfg)
 
-	// 4. Create Bridge (auto-setup on first run)
+	// 4. Create Bridge — always ensure ~/.aurelia/bridge/ is set up
+	home, _ := os.UserHomeDir()
+	aureliBridgeDir := filepath.Join(home, ".aurelia", "bridge")
+	if _, setupErr := bridge.EnsureBridge(aureliBridgeDir, bridge.EmbeddedBundleJS); setupErr != nil {
+		log.Printf("Warning: bridge auto-setup failed: %v", setupErr)
+	}
+	// Use local bridge/ if available (development), otherwise ~/.aurelia/bridge/
 	bridgeDir := findBridgeDir()
 	if bridgeDir == "" {
-		home, _ := os.UserHomeDir()
-		targetDir := filepath.Join(home, ".aurelia", "bridge")
-		var setupErr error
-		bridgeDir, setupErr = bridge.EnsureBridge(targetDir, bridge.EmbeddedBundleJS)
-		if setupErr != nil {
-			return nil, fmt.Errorf("setup bridge: %w", setupErr)
-		}
+		bridgeDir = aureliBridgeDir
 	}
 	bundlePath := filepath.Join(bridgeDir, "bundle.js")
 	if _, err := os.Stat(bundlePath); os.IsNotExist(err) {
