@@ -151,17 +151,20 @@ func bootstrapApp() (*app, error) {
 		)
 
 		deliverToTelegram := func(ctx context.Context, job cron.CronJob, output string, execErr error) error {
+			log.Printf("Cron delivery: job=%s chat=%d output_len=%d err=%v", job.ID[:8], job.TargetChatID, len(output), execErr)
 			if job.TargetChatID == 0 {
+				log.Println("Cron delivery skipped: no chat ID")
 				return nil
 			}
 			chat := &telebot.Chat{ID: job.TargetChatID}
 			if execErr != nil {
-				return telegram.SendError(bot.GetBot(), chat, execErr.Error())
+				return telegram.SendError(bot.GetBot(), chat, fmt.Sprintf("Cron job %s falhou: %v", job.ID[:8], execErr))
 			}
 			if output == "" {
 				return nil
 			}
-			return telegram.SendText(bot.GetBot(), chat, output)
+			header := fmt.Sprintf("📋 Resultado agendamento (%s):\n\n", job.ID[:8])
+			return telegram.SendText(bot.GetBot(), chat, header+output)
 		}
 
 		notifyingRuntime := cron.NewNotifyingRuntime(cronRuntime, deliverToTelegram)
