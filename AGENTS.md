@@ -110,10 +110,11 @@ go test ./... -v         # full test suite
 go vet ./...             # static analysis
 ```
 
-Bridge setup:
+Bridge is embedded in the Go binary via `go:embed`. To rebuild after modifying `bridge/index.ts`:
 
 ```bash
-cd bridge && npm install
+cd bridge && npx esbuild index.ts --bundle --platform=node --target=node18 --outfile=bundle.js --format=esm
+cp bundle.js ../internal/bridge/bundle.js
 ```
 
 ---

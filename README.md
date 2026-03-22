@@ -106,7 +106,7 @@ flowchart LR
 
 ```text
 cmd/aurelia/              CLI entry point, onboarding, cron CLI, telegram CLI
-internal/bridge/          Go ↔ TypeScript Bridge (long-lived, multiplexed by request_id)
+internal/bridge/          Go ↔ Bridge client (long-lived, multiplexed, bundle embedded via go:embed)
 internal/telegram/        Telegram I/O, async pipeline, sessions, progress, reactions
 internal/memory/          Semantic memory (SQLite + local ONNX embeddings)
 internal/agents/          Agent registry (markdown definitions)
@@ -115,7 +115,7 @@ internal/cron/            Persistent cron scheduler with Telegram delivery
 internal/config/          App configuration (providers, Telegram, embedding)
 internal/runtime/         Path resolver + instance bootstrap
 pkg/stt/                  Speech-to-text (Groq Whisper)
-bridge/                   TypeScript Bridge (Claude Agent SDK wrapper, ~270 LOC)
+bridge/                   TypeScript Bridge source (compiled to bundle.js via esbuild, embedded in binary)
 ```
 
 ### Bridge Protocol
@@ -230,22 +230,17 @@ Requirements:
 
 ### Quick Start
 
-1. Install Bridge dependencies:
-   ```bash
-   cd bridge && npm install && cd ..
-   ```
-
-2. Run onboarding:
+1. Run onboarding:
    ```bash
    go run ./cmd/aurelia/ onboard
    ```
 
-3. Start:
+2. Start:
    ```bash
    go run ./cmd/aurelia/
    ```
 
-4. Send `/start` to your bot on Telegram.
+3. Send `/start` to your bot on Telegram.
 
 ### Hot Reload (Development)
 
@@ -312,7 +307,13 @@ go build ./...        # Build
 go test ./... -short  # Test
 go vet ./...          # Lint
 air                   # Hot reload
-cd bridge && npx tsc --noEmit  # TypeScript check
+```
+
+To rebuild the Bridge bundle after modifying `bridge/index.ts`:
+
+```bash
+cd bridge && npx esbuild index.ts --bundle --platform=node --target=node18 --outfile=bundle.js --format=esm
+cp bundle.js ../internal/bridge/bundle.js
 ```
 
 ## Current State
