@@ -59,10 +59,11 @@ func (r *BridgeCronRuntime) ExecuteJob(ctx context.Context, job CronJob) (string
 	}
 	systemPrompt := basePrompt
 
-	// 2. Build request options
+	// 2. Build request options — no user settings to avoid MCPs like Telegram
 	opts := bridge.RequestOptions{
 		SystemPrompt:   systemPrompt,
 		PermissionMode: "bypassPermissions",
+		NoUserSettings: true,
 	}
 
 	// 3. Apply agent config if available

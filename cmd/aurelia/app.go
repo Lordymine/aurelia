@@ -169,7 +169,7 @@ func bootstrapApp() (*app, error) {
 
 		notifyingRuntime := cron.NewNotifyingRuntime(cronRuntime, deliverToTelegram)
 		scheduler, err = cron.NewScheduler(cronStore, notifyingRuntime, nil, cron.SchedulerConfig{
-			PollInterval: time.Minute,
+			PollInterval: 15 * time.Second,
 		})
 		if err != nil {
 			_ = memStore.Close()
