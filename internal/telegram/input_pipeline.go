@@ -191,7 +191,13 @@ Cron expressions: "30 8 * * *" = daily 8:30 | "0 9 * * 1" = Monday 9:00 | "0 */2
 
 The --chat-id flag is REQUIRED — it ensures results are delivered to this Telegram chat.
 
-IMPORTANT: The prompt saved in a cron job must be FULLY SELF-CONTAINED. It will execute in an isolated session with NO conversation history. Write it as a complete instruction that produces the desired output without any prior context. Bad: "faça a mesma coisa". Good: "Pesquise as principais notícias de tech e IA da semana, resuma cada uma com título, descrição curta e link. Formate como newsletter com seções: IA, Hardware, Dev, Segurança, Regulação."`,
+CRITICAL RULES FOR CRON PROMPTS:
+1. The prompt is an INSTRUCTION, not content. It tells the agent WHAT TO DO when the job fires.
+2. It executes in an isolated session with NO conversation history.
+3. The agent will execute the prompt and its text output is delivered directly to Telegram.
+4. NEVER paste content/data into the prompt. Write an ACTION instruction.
+5. Bad: "Envie esta newsletter: [conteúdo colado aqui]"
+6. Good: "Pesquise as principais notícias de tech e IA da última semana usando WebSearch. Para cada notícia inclua título, resumo de 1 linha e link. Formate como newsletter com emojis e seções: IA, Hardware, Dev, Segurança, Regulação. Encerre com um insight da semana e hashtags."`,
 		bin, chatFlag,
 		bin, chatFlag,
 		bin, chatFlag,
