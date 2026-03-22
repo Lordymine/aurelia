@@ -98,6 +98,11 @@ func (bc *BotController) buildBridgeRequest(userText, systemPrompt string, agent
 			SystemPrompt:   systemPrompt,
 			MaxTurns:       bc.config.MaxIterations,
 			PermissionMode: "bypassPermissions",
+			DisabledTools: []string{
+				"mcp__plugin_telegram_telegram__reply",
+				"mcp__plugin_telegram_telegram__react",
+				"mcp__plugin_telegram_telegram__edit_message",
+			},
 		},
 	}
 
