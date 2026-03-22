@@ -12,8 +12,6 @@ var requiredDirs = []func(*PathResolver) string{
 	(*PathResolver).Data,
 	(*PathResolver).Memory,
 	(*PathResolver).MemoryPersonas,
-	(*PathResolver).Skills,
-	(*PathResolver).Logs,
 	(*PathResolver).Agents,
 }
 

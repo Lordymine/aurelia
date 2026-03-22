@@ -56,8 +56,6 @@ func TestPathResolver_Accessors(t *testing.T) {
 		{"Data", r.Data(), filepath.Join(base, "data")},
 		{"Memory", r.Memory(), filepath.Join(base, "memory")},
 		{"MemoryPersonas", r.MemoryPersonas(), filepath.Join(base, "memory", "personas")},
-		{"Skills", r.Skills(), filepath.Join(base, "skills")},
-		{"Logs", r.Logs(), filepath.Join(base, "logs")},
 	}
 	for _, c := range cases {
 		if c.got != c.want {

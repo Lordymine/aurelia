@@ -20,8 +20,7 @@ func TestBootstrap_CreatesAllDirectories(t *testing.T) {
 		filepath.Join(root, "data"),
 		filepath.Join(root, "memory"),
 		filepath.Join(root, "memory", "personas"),
-		filepath.Join(root, "skills"),
-		filepath.Join(root, "logs"),
+		filepath.Join(root, "agents"),
 	}
 	for _, dir := range expected {
 		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
@@ -35,11 +34,11 @@ func TestBootstrap_Idempotent(t *testing.T) {
 	r := &PathResolver{root: root}
 
 	// Place a sentinel file inside a directory Bootstrap will visit
-	skillsDir := filepath.Join(root, "skills")
-	if err := os.MkdirAll(skillsDir, 0700); err != nil {
+	agentsDir := filepath.Join(root, "agents")
+	if err := os.MkdirAll(agentsDir, 0700); err != nil {
 		t.Fatal(err)
 	}
-	sentinel := filepath.Join(skillsDir, "my-skill.yaml")
+	sentinel := filepath.Join(agentsDir, "my-agent.md")
 	if err := os.WriteFile(sentinel, []byte("content"), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +70,6 @@ func TestBootstrapProject_CreatesLocalSkillsDirectory(t *testing.T) {
 
 	expected := []string{
 		filepath.Join(projectRoot, ".aurelia"),
-		filepath.Join(projectRoot, ".aurelia", "skills"),
 	}
 	for _, dir := range expected {
 		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
@@ -96,7 +94,6 @@ func TestBootstrap_PermissionsUnix(t *testing.T) {
 		filepath.Join(root, "config"),
 		filepath.Join(root, "data"),
 		filepath.Join(root, "memory"),
-		filepath.Join(root, "logs"),
 	}
 	for _, dir := range dirs {
 		info, err := os.Stat(dir)

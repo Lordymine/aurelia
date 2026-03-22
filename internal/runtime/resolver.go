@@ -48,12 +48,6 @@ func (r *PathResolver) Memory() string { return filepath.Join(r.root, "memory") 
 // MemoryPersonas returns the path to the memory/personas/ subdirectory.
 func (r *PathResolver) MemoryPersonas() string { return filepath.Join(r.root, "memory", "personas") }
 
-// Skills returns the path to the skills/ subdirectory.
-func (r *PathResolver) Skills() string { return filepath.Join(r.root, "skills") }
-
-// Logs returns the path to the logs/ subdirectory.
-func (r *PathResolver) Logs() string { return filepath.Join(r.root, "logs") }
-
 // Agents returns the path to the agents/ subdirectory.
 func (r *PathResolver) Agents() string { return filepath.Join(r.root, "agents") }
 
