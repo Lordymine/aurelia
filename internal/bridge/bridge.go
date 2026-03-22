@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 )
@@ -47,14 +48,15 @@ type Bridge struct {
 	done chan struct{}
 }
 
-// New creates a Bridge that runs the given bundlePath with node.
-// If bundlePath is empty, falls back to npx tsx index.ts in bridgeDir.
+// New creates a Bridge that runs in bridgeDir.
+// If bundlePath is non-empty, uses `node <filename>`. Otherwise falls back to `npx tsx index.ts`.
 func New(bridgeDir string, bundlePath string) *Bridge {
-	cmd := "node"
-	args := []string{bundlePath}
-	if bundlePath == "" {
-		cmd = "npx"
-		args = []string{"tsx", "index.ts"}
+	cmd := "npx"
+	args := []string{"tsx", "index.ts"}
+	if bundlePath != "" {
+		cmd = "node"
+		// Use just the filename since cmd.Dir is set to bridgeDir
+		args = []string{filepath.Base(bundlePath)}
 	}
 	return &Bridge{
 		bridgeDir: bridgeDir,
