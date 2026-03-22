@@ -119,6 +119,11 @@ func (bc *BotController) buildBridgeRequest(userText, systemPrompt string, agent
 		}
 	}
 
+	// Pass all agents to SDK for native delegation
+	if sdkAgents := agents.BuildSDKAgents(bc.agents); sdkAgents != nil {
+		req.Options.Agents = sdkAgents
+	}
+
 	// Continue warm sessions (same process), resume cold ones (restored from disk)
 	if sessionID, active := bc.sessions.GetWithState(chatID); sessionID != "" {
 		if active {
