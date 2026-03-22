@@ -189,7 +189,9 @@ Resume: `+"`%s cron resume <job-id>`"+`
 
 Cron expressions: "30 8 * * *" = daily 8:30 | "0 9 * * 1" = Monday 9:00 | "0 */2 * * *" = every 2h
 
-The --chat-id flag is REQUIRED — it ensures results are delivered to this Telegram chat.`,
+The --chat-id flag is REQUIRED — it ensures results are delivered to this Telegram chat.
+
+IMPORTANT: The prompt saved in a cron job must be FULLY SELF-CONTAINED. It will execute in an isolated session with NO conversation history. Write it as a complete instruction that produces the desired output without any prior context. Bad: "faça a mesma coisa". Good: "Pesquise as principais notícias de tech e IA da semana, resuma cada uma com título, descrição curta e link. Formate como newsletter com seções: IA, Hardware, Dev, Segurança, Regulação."`,
 		bin, chatFlag,
 		bin, chatFlag,
 		bin, chatFlag,
