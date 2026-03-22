@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -17,6 +18,7 @@ type Scheduler struct {
 	runtime Runtime
 	clock   Clock
 	config  SchedulerConfig
+	running sync.Map // jobID → struct{} to prevent concurrent execution
 }
 
 // NewScheduler creates a cron scheduler.
@@ -78,6 +80,11 @@ func (s *Scheduler) Start(ctx context.Context) error {
 }
 
 func (s *Scheduler) runSingleJob(ctx context.Context, now time.Time, job CronJob) error {
+	if _, loaded := s.running.LoadOrStore(job.ID, struct{}{}); loaded {
+		return nil // already running
+	}
+	defer s.running.Delete(job.ID)
+
 	startedAt := now
 	log.Printf("cron.scheduler: executing job %s", job.ID)
 
