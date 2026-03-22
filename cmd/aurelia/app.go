@@ -119,7 +119,10 @@ func bootstrapApp() (*app, error) {
 	cronSvc := cron.NewService(cronStore, nil)
 	cronHandler := telegram.NewCronCommandHandler(cronSvc)
 
-	// 12. Create Telegram BotController
+	// 12. Resolve aurelia binary path for cron CLI instructions
+	exePath, _ := os.Executable()
+
+	// 13. Create Telegram BotController
 	bot, err := telegram.NewBotController(
 		cfg,
 		br,
@@ -129,6 +132,7 @@ func bootstrapApp() (*app, error) {
 		transcriber,
 		cronHandler,
 		personasDir,
+		exePath,
 	)
 	if err != nil {
 		_ = memStore.Close()

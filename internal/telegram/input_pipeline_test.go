@@ -18,12 +18,12 @@ func TestBuildSystemPrompt_WithoutDependencies(t *testing.T) {
 		},
 	}
 
-	prompt, err := bc.buildSystemPrompt("hello", nil)
+	prompt, err := bc.buildSystemPrompt("hello", nil, 0)
 	if err != nil {
 		t.Fatalf("buildSystemPrompt() error = %v", err)
 	}
-	if prompt != "" {
-		t.Fatalf("expected empty prompt with nil deps, got %q", prompt)
+	if !strings.Contains(prompt, "## Scheduling Tasks") {
+		t.Fatalf("expected cron instructions in prompt, got %q", prompt)
 	}
 }
 
@@ -42,7 +42,7 @@ func TestBuildSystemPrompt_WithAgent(t *testing.T) {
 		Prompt: "You are a coding assistant.",
 	}
 
-	prompt, err := bc.buildSystemPrompt("write some code", agent)
+	prompt, err := bc.buildSystemPrompt("write some code", agent, 0)
 	if err != nil {
 		t.Fatalf("buildSystemPrompt() error = %v", err)
 	}
@@ -68,12 +68,16 @@ func TestBuildSystemPrompt_AgentWithEmptyPrompt(t *testing.T) {
 		Name: "empty",
 	}
 
-	prompt, err := bc.buildSystemPrompt("hello", agent)
+	prompt, err := bc.buildSystemPrompt("hello", agent, 0)
 	if err != nil {
 		t.Fatalf("buildSystemPrompt() error = %v", err)
 	}
-	if prompt != "" {
-		t.Fatalf("expected empty prompt with empty agent, got %q", prompt)
+	// With empty agent, prompt should only contain cron instructions
+	if !strings.Contains(prompt, "## Scheduling Tasks") {
+		t.Fatalf("expected cron instructions in prompt, got %q", prompt)
+	}
+	if strings.Contains(prompt, "# Agent Instructions") {
+		t.Fatalf("expected no agent instructions with empty agent, got %q", prompt)
 	}
 }
 

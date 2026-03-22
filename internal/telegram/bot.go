@@ -28,6 +28,7 @@ type BotController struct {
 	cronHandler      *CronCommandHandler
 	sessions         *sessionStore
 	personasDir      string
+	exePath          string // path to aurelia binary for CLI instructions in system prompt
 	bootstrapMu      sync.Mutex
 	pendingBootstrap map[int64]bootstrapState
 	albumMu          sync.Mutex
@@ -55,6 +56,7 @@ func NewBotController(
 	s stt.Transcriber,
 	cronHandler *CronCommandHandler,
 	personasDir string,
+	exePath string,
 ) (*BotController, error) {
 
 	pref := telebot.Settings{
@@ -78,6 +80,7 @@ func NewBotController(
 		cronHandler:      cronHandler,
 		sessions:         newSessionStore(),
 		personasDir:      personasDir,
+		exePath:          exePath,
 		pendingBootstrap: make(map[int64]bootstrapState),
 		pendingAlbums:    make(map[string]*pendingAlbum),
 	}

@@ -65,8 +65,8 @@ func (bc *BotController) processInput(c telebot.Context, text string, parts [][]
 		userText = text
 	}
 
-	// 2. Build system prompt: persona + agent prompt + memory
-	systemPrompt, err := bc.buildSystemPrompt(userText, agent)
+	// 2. Build system prompt: persona + agent prompt + cron instructions + memory
+	systemPrompt, err := bc.buildSystemPrompt(userText, agent, c.Chat().ID)
 	if err != nil {
 		log.Printf("Failed to build system prompt: %v", err)
 		return SendError(bc.bot, c.Chat(), "Falha ao montar o prompt de sistema.")
@@ -124,8 +124,8 @@ func (bc *BotController) processInput(c telebot.Context, text string, parts [][]
 	return bc.processBridgeEvents(c, ch, userText)
 }
 
-// buildSystemPrompt assembles the system prompt from persona, agent, and memory.
-func (bc *BotController) buildSystemPrompt(userText string, agent *agents.Agent) (string, error) {
+// buildSystemPrompt assembles the system prompt from persona, agent, cron instructions, and memory.
+func (bc *BotController) buildSystemPrompt(userText string, agent *agents.Agent, chatID int64) (string, error) {
 	var sections []string
 
 	// Persona prompt
@@ -143,6 +143,9 @@ func (bc *BotController) buildSystemPrompt(userText string, agent *agents.Agent)
 		sections = append(sections, "# Agent Instructions\n\n"+agent.Prompt)
 	}
 
+	// Cron scheduling instructions
+	sections = append(sections, bc.buildCronInstructions(chatID))
+
 	// Memory injection
 	if bc.memory != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -156,6 +159,49 @@ func (bc *BotController) buildSystemPrompt(userText string, agent *agents.Agent)
 	}
 
 	return strings.Join(sections, "\n\n"), nil
+}
+
+// buildCronInstructions returns the system prompt section that teaches the agent
+// how to create and manage cron jobs via the aurelia CLI.
+func (bc *BotController) buildCronInstructions(chatID int64) string {
+	bin := "aurelia"
+	if bc.exePath != "" {
+		bin = bc.exePath
+	}
+	chatFlag := fmt.Sprintf("--chat-id %d", chatID)
+
+	return fmt.Sprintf(`## Scheduling Tasks
+
+When the user asks to schedule or automate something recurring, use the Aurelia cron CLI:
+
+To create a recurring schedule:
+`+"```bash\n%s cron add \"<cron-expression>\" \"<prompt>\" %s\n```"+`
+
+To create a one-time schedule:
+`+"```bash\n%s cron once \"<ISO-timestamp>\" \"<prompt>\" %s\n```"+`
+
+To list existing schedules:
+`+"```bash\n%s cron list %s\n```"+`
+
+To delete a schedule:
+`+"```bash\n%s cron del <job-id>\n```"+`
+
+To pause or resume a schedule:
+`+"```bash\n%s cron pause <job-id>\n%s cron resume <job-id>\n```"+`
+
+Examples of cron expressions:
+- "30 8 * * *" = every day at 8:30
+- "0 9 * * 1" = every Monday at 9:00
+- "0 */2 * * *" = every 2 hours
+
+The --chat-id flag ensures the result is delivered to the correct Telegram chat.
+Always confirm with the user before creating a schedule.`,
+		bin, chatFlag,
+		bin, chatFlag,
+		bin, chatFlag,
+		bin,
+		bin, bin,
+	)
 }
 
 // processBridgeEvents reads bridge events and sends responses to the Telegram chat.

@@ -16,6 +16,11 @@ func main() {
 				log.Fatalf("Failed to run onboarding: %v", err)
 			}
 			return
+		case "cron":
+			if err := runCronCLI(os.Args[2:]); err != nil {
+				log.Fatalf("Cron command failed: %v", err)
+			}
+			return
 		default:
 			log.Fatalf("Unknown command: %s", os.Args[1])
 		}
