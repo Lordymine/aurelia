@@ -106,6 +106,58 @@ func SendDocument(bot *telebot.Bot, chat *telebot.Chat, filename, content string
 	return err
 }
 
+func SendTextReply(bot *telebot.Bot, chat *telebot.Chat, text string, replyToID int) error {
+	if replyToID == 0 {
+		return SendText(bot, chat, text)
+	}
+	return sendTextReplyWithSender(bot, chat, text, telegramMessageLimit, replyToID)
+}
+
+func sendTextReplyWithSender(sender messageSender, chat *telebot.Chat, text string, limit int, replyToID int) error {
+	chunks := splitTelegramMarkdown(text, limit)
+	replyTo := &telebot.Message{ID: replyToID}
+
+	for i, chunk := range chunks {
+		htmlChunk := MarkdownToHTML(chunk)
+		opts := &telebot.SendOptions{ParseMode: telebot.ModeHTML}
+		// Only reply-to on the first chunk
+		if i == 0 {
+			opts.ReplyTo = replyTo
+		}
+
+		_, err := sender.Send(chat, htmlChunk, opts)
+		if err == nil {
+			time.Sleep(200 * time.Millisecond)
+			continue
+		}
+
+		log.Printf("Send chunk with HTML failed (%v). Retrying as plain text...", err)
+		opts = &telebot.SendOptions{}
+		if i == 0 {
+			opts.ReplyTo = replyTo
+		}
+		_, err = sender.Send(chat, chunk, opts)
+		if err != nil {
+			return err
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return nil
+}
+
+func ReactToMessage(bot *telebot.Bot, chat *telebot.Chat, messageID int, emoji string) {
+	if messageID == 0 {
+		return
+	}
+	msg := &telebot.Message{ID: messageID}
+	err := bot.React(chat, msg, telebot.ReactionOptions{
+		Reactions: []telebot.Reaction{{Type: "emoji", Emoji: emoji}},
+	})
+	if err != nil {
+		log.Printf("React error: %v", err)
+	}
+}
+
 func SendError(bot *telebot.Bot, chat *telebot.Chat, errMsg string) error {
 	return sendErrorWithSender(bot, chat, "Erro", errMsg)
 }

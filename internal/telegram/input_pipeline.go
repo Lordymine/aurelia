@@ -49,7 +49,9 @@ func (bc *BotController) processInput(c telebot.Context, text string, parts [][]
 
 	// 4. Launch async execution — don't block the handler
 	chatID := c.Chat().ID
-	go bc.executeAsync(chatID, req, userText)
+	messageID := c.Message().ID
+	go bc.executeAsync(chatID, messageID, req, userText)
+	ReactToMessage(bc.bot, &telebot.Chat{ID: chatID}, messageID, "👀")
 
 	return nil
 }
@@ -133,7 +135,7 @@ func (bc *BotController) buildBridgeRequest(userText, systemPrompt string, agent
 // executeAsync runs the bridge execution in a goroutine with its own typing
 // indicator and progress reporter. Errors are sent directly to the chat since
 // the original handler has already returned.
-func (bc *BotController) executeAsync(chatID int64, req bridge.Request, userText string) {
+func (bc *BotController) executeAsync(chatID int64, messageID int, req bridge.Request, userText string) {
 	chat := &telebot.Chat{ID: chatID}
 
 	// Start typing indicator
@@ -151,18 +153,19 @@ func (bc *BotController) executeAsync(chatID int64, req bridge.Request, userText
 	ch, err := bc.bridge.Execute(ctx, req)
 	if err != nil {
 		log.Printf("Bridge execute error: %v", err)
+		ReactToMessage(bc.bot, chat, messageID, "❌")
 		_ = SendError(bc.bot, chat, "Falha ao conectar com o processador.")
 		return
 	}
 
 	// Process events
-	bc.processBridgeEventsAsync(chat, ch, progress, userText)
+	bc.processBridgeEventsAsync(chat, ch, progress, userText, messageID)
 }
 
 // processBridgeEventsAsync reads bridge events and sends responses to the
 // Telegram chat. Unlike the old processBridgeEvents, it takes a *telebot.Chat
 // instead of telebot.Context, since the handler has already returned.
-func (bc *BotController) processBridgeEventsAsync(chat *telebot.Chat, ch <-chan bridge.Event, progress *progressReporter, userText string) {
+func (bc *BotController) processBridgeEventsAsync(chat *telebot.Chat, ch <-chan bridge.Event, progress *progressReporter, userText string, messageID int) {
 	var assistantText strings.Builder
 
 	for ev := range ch {
@@ -202,7 +205,8 @@ func (bc *BotController) processBridgeEventsAsync(chat *telebot.Chat, ch <-chan 
 			}
 
 			bc.saveToMemory(userText, finalText)
-			_ = SendText(bc.bot, chat, finalText)
+			ReactToMessage(bc.bot, chat, messageID, "✅")
+			_ = SendTextReply(bc.bot, chat, finalText, messageID)
 			return
 
 		case "error":
@@ -214,6 +218,7 @@ func (bc *BotController) processBridgeEventsAsync(chat *telebot.Chat, ch <-chan 
 				errMsg = "Erro desconhecido no processador."
 			}
 			log.Printf("Bridge error: %s", errMsg)
+			ReactToMessage(bc.bot, chat, messageID, "❌")
 			_ = SendError(bc.bot, chat, errMsg)
 			return
 
@@ -226,8 +231,10 @@ func (bc *BotController) processBridgeEventsAsync(chat *telebot.Chat, ch <-chan 
 	finalText := strings.TrimSpace(assistantText.String())
 	if finalText != "" {
 		bc.saveToMemory(userText, finalText)
-		_ = SendText(bc.bot, chat, finalText)
+		ReactToMessage(bc.bot, chat, messageID, "✅")
+		_ = SendTextReply(bc.bot, chat, finalText, messageID)
 	} else {
+		ReactToMessage(bc.bot, chat, messageID, "❌")
 		_ = SendError(bc.bot, chat, "O processador encerrou sem resposta.")
 	}
 }
