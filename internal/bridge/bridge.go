@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"sync"
 	"sync/atomic"
@@ -90,7 +91,7 @@ func (b *Bridge) startLocked() error {
 	}
 
 	// Stderr goes to parent stderr for debugging.
-	cmd.Stderr = nil // inherits parent stderr
+	cmd.Stderr = os.Stderr
 
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("bridge: start process: %w", err)
