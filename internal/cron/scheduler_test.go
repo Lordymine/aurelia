@@ -3,6 +3,7 @@ package cron
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -76,6 +77,15 @@ func (f *fakeCronStore) RecordExecution(ctx context.Context, exec CronExecution)
 	return nil
 }
 
+func (f *fakeCronStore) ResolveJobID(ctx context.Context, prefix string) (string, error) {
+	for id := range f.jobs {
+		if len(id) >= len(prefix) && id[:len(prefix)] == prefix {
+			return id, nil
+		}
+	}
+	return "", fmt.Errorf("cron job %s not found", prefix)
+}
+
 func (f *fakeCronStore) ListExecutionsByJob(ctx context.Context, jobID string) ([]CronExecution, error) {
 	var result []CronExecution
 	for _, exec := range f.executions {
@@ -106,6 +116,50 @@ type staticClock struct {
 
 func (c staticClock) Now() time.Time {
 	return c.now
+}
+
+func TestComputeNextRun_EveryFiveMinutes(t *testing.T) {
+	base := time.Date(2026, 3, 22, 10, 0, 0, 0, time.UTC)
+	next, err := computeNextRun("*/5 * * * *", base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := time.Date(2026, 3, 22, 10, 5, 0, 0, time.UTC)
+	if !next.Equal(want) {
+		t.Errorf("got %v, want %v", next, want)
+	}
+}
+
+func TestComputeNextRun_DailyAt9AM(t *testing.T) {
+	base := time.Date(2026, 3, 22, 10, 0, 0, 0, time.UTC)
+	next, err := computeNextRun("0 9 * * *", base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := time.Date(2026, 3, 23, 9, 0, 0, 0, time.UTC)
+	if !next.Equal(want) {
+		t.Errorf("got %v, want %v", next, want)
+	}
+}
+
+func TestComputeNextRun_WeekdaysOnly(t *testing.T) {
+	// Friday 2026-03-27
+	base := time.Date(2026, 3, 27, 18, 0, 0, 0, time.UTC)
+	next, err := computeNextRun("0 9 * * 1-5", base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Should skip Sat+Sun → Monday 2026-03-30
+	if next.Weekday() != time.Monday {
+		t.Errorf("expected Monday, got %v (%v)", next.Weekday(), next)
+	}
+}
+
+func TestComputeNextRun_InvalidExpr(t *testing.T) {
+	_, err := computeNextRun("not a cron", time.Now())
+	if err == nil {
+		t.Error("expected error for invalid expression")
+	}
 }
 
 func TestScheduler_RunDueJobs_ExecutesDueRecurringJobAndSchedulesNextRun(t *testing.T) {

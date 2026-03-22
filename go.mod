@@ -5,6 +5,7 @@ go 1.25.0
 require (
 	github.com/google/uuid v1.6.0
 	github.com/knights-analytics/hugot v0.6.5
+	github.com/robfig/cron/v3 v3.0.1
 	github.com/yuin/goldmark v1.7.8
 	golang.org/x/term v0.41.0
 	gopkg.in/telebot.v3 v3.3.8

@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	robfigcron "github.com/robfig/cron/v3"
 )
 
 // Scheduler polls for due cron jobs and executes them.
@@ -125,44 +125,12 @@ func (s *Scheduler) runSingleJob(ctx context.Context, now time.Time, job CronJob
 	return nil
 }
 
+// computeNextRun calculates the next run time for a standard cron expression.
 func computeNextRun(expr string, after time.Time) (time.Time, error) {
-	parts := strings.Fields(strings.TrimSpace(expr))
-	if len(parts) != 5 {
-		return time.Time{}, fmt.Errorf("unsupported cron expression: %s", expr)
-	}
-
-	minutePart := parts[0]
-	hourPart := parts[1]
-
-	switch {
-	case strings.HasPrefix(minutePart, "*/") && hourPart == "*":
-		interval, err := time.ParseDuration(strings.TrimPrefix(minutePart, "*/") + "m")
-		if err != nil || interval <= 0 {
-			return time.Time{}, fmt.Errorf("unsupported cron expression: %s", expr)
-		}
-		return after.UTC().Truncate(time.Minute).Add(interval), nil
-	case isExactNumber(minutePart) && isExactNumber(hourPart):
-		minute, _ := parseIntCron(minutePart)
-		hour, _ := parseIntCron(hourPart)
-		next := time.Date(after.Year(), after.Month(), after.Day(), hour, minute, 0, 0, time.UTC)
-		if !next.After(after.UTC()) {
-			next = next.Add(24 * time.Hour)
-		}
-		return next, nil
-	default:
-		return time.Time{}, fmt.Errorf("unsupported cron expression: %s", expr)
-	}
-}
-
-func isExactNumber(v string) bool {
-	_, err := parseIntCron(v)
-	return err == nil
-}
-
-func parseIntCron(v string) (int, error) {
-	n, err := strconv.Atoi(v)
+	parser := robfigcron.NewParser(robfigcron.Minute | robfigcron.Hour | robfigcron.Dom | robfigcron.Month | robfigcron.Dow)
+	sched, err := parser.Parse(expr)
 	if err != nil {
-		return 0, err
+		return time.Time{}, fmt.Errorf("invalid cron expression %q: %w", expr, err)
 	}
-	return n, nil
+	return sched.Next(after), nil
 }
