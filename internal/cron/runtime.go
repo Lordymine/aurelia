@@ -59,13 +59,16 @@ func (r *BridgeCronRuntime) ExecuteJob(ctx context.Context, job CronJob) (string
 	}
 	systemPrompt := basePrompt
 
-	// 2. Build request options — no user settings to avoid Telegram plugin
-	// delivering results via wrong bot. Agent-specific MCPs are still
-	// available via agent.MCPServers field.
+	// 2. Build request options — block Telegram plugin tools to prevent
+	// delivery via wrong bot. All other user MCPs/plugins remain available.
 	opts := bridge.RequestOptions{
 		SystemPrompt:   systemPrompt,
 		PermissionMode: "bypassPermissions",
-		NoUserSettings: true,
+		DisabledTools: []string{
+			"mcp__plugin_telegram_telegram__reply",
+			"mcp__plugin_telegram_telegram__react",
+			"mcp__plugin_telegram_telegram__edit_message",
+		},
 	}
 
 	// 3. Apply agent config if available
