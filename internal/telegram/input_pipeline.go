@@ -119,9 +119,13 @@ func (bc *BotController) buildBridgeRequest(userText, systemPrompt string, agent
 		}
 	}
 
-	// Resume previous session for conversation continuity
-	if sessionID := bc.sessions.Get(chatID); sessionID != "" {
-		req.Options.Resume = sessionID
+	// Continue warm sessions (same process), resume cold ones (restored from disk)
+	if sessionID, active := bc.sessions.GetWithState(chatID); sessionID != "" {
+		if active {
+			req.Options.Continue = true
+		} else {
+			req.Options.Resume = sessionID
+		}
 	}
 
 	// Apply chat-level cwd if no agent overrides it
