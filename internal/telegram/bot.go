@@ -119,4 +119,5 @@ func (bc *BotController) setupRoutes() {
 
 	bc.setupBootstrapRoutes()
 	bc.registerContentRoutes()
+	bc.registerSlashMenu()
 }
