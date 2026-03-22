@@ -18,5 +18,6 @@ type RequestOptions struct {
 	PermissionMode string         `json:"permission_mode,omitempty"`
 	MCPServers     map[string]any `json:"mcp_servers,omitempty"`
 	AllowedTools   []string       `json:"allowed_tools,omitempty"`
-	DisabledTools []string `json:"disabled_tools,omitempty"`
+	NoUserSettings bool     `json:"no_user_settings,omitempty"`
+	DisabledTools  []string `json:"disabled_tools,omitempty"`
 }
