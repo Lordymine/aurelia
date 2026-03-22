@@ -11,6 +11,12 @@ import (
 	"sync/atomic"
 )
 
+// safeClose closes a channel, recovering from panic if already closed.
+func safeClose(ch chan Event) {
+	defer func() { recover() }()
+	close(ch)
+}
+
 // Bridge manages a long-lived TypeScript bridge process and communicates via
 // stdin/stdout using NDJSON. Multiple requests are multiplexed over a single
 // process using request_id correlation.
@@ -142,14 +148,14 @@ func (b *Bridge) readLoop() {
 			b.pendingMu.Lock()
 			delete(b.pending, rid)
 			b.pendingMu.Unlock()
-			close(ch)
+			safeClose(ch)
 		}
 	}
 
 	// Process exited or stdout closed — close all pending channels.
 	b.pendingMu.Lock()
 	for rid, ch := range b.pending {
-		close(ch)
+		safeClose(ch)
 		delete(b.pending, rid)
 	}
 	b.pendingMu.Unlock()
@@ -240,7 +246,7 @@ func (b *Bridge) Execute(ctx context.Context, req Request) (<-chan Event, error)
 		b.pendingMu.Lock()
 		delete(b.pending, req.RequestID)
 		b.pendingMu.Unlock()
-		close(ch)
+		safeClose(ch)
 		return nil, fmt.Errorf("bridge: process died before write")
 	}
 	_, err = b.stdin.Write(append(payload, '\n'))
@@ -250,7 +256,7 @@ func (b *Bridge) Execute(ctx context.Context, req Request) (<-chan Event, error)
 		b.pendingMu.Lock()
 		delete(b.pending, req.RequestID)
 		b.pendingMu.Unlock()
-		close(ch)
+		safeClose(ch)
 		return nil, fmt.Errorf("bridge: write request: %w", err)
 	}
 
