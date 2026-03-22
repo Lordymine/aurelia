@@ -51,11 +51,11 @@ func NewBridgeCronRuntime(
 
 // ExecuteJob builds the system prompt with persona and memory context,
 // optionally resolves an agent, executes via Bridge, and saves the result.
-func (r *BridgeCronRuntime) ExecuteJob(ctx context.Context, job CronJob) (string, error) {
+func (r *BridgeCronRuntime) ExecuteJob(ctx context.Context, job CronJob) (*ExecutionResult, error) {
 	// 1. Build system prompt from persona
 	basePrompt, err := r.persona.BuildPrompt()
 	if err != nil {
-		return "", fmt.Errorf("build persona prompt: %w", err)
+		return nil, fmt.Errorf("build persona prompt: %w", err)
 	}
 	systemPrompt := basePrompt
 
@@ -84,16 +84,16 @@ func (r *BridgeCronRuntime) ExecuteJob(ctx context.Context, job CronJob) (string
 	}
 
 	// 5. Execute via Bridge
-	result, err := r.bridge.Execute(ctx, bridge.Request{
+	ev, err := r.bridge.Execute(ctx, bridge.Request{
 		Command: "query",
 		Prompt:  job.Prompt,
 		Options: opts,
 	})
 	if err != nil {
-		return "", fmt.Errorf("bridge execute: %w", err)
+		return nil, fmt.Errorf("bridge execute: %w", err)
 	}
-	if result.Type == "error" {
-		return "", fmt.Errorf("bridge error: %s", result.Message)
+	if ev.Type == "error" {
+		return nil, fmt.Errorf("bridge error: %s", ev.Message)
 	}
 
 	// 6. Save result to memory (best effort)
@@ -101,9 +101,14 @@ func (r *BridgeCronRuntime) ExecuteJob(ctx context.Context, job CronJob) (string
 	if agentName == "" {
 		agentName = "cron"
 	}
-	_ = r.memory.Save(ctx, result.Content, "conversation", agentName)
+	_ = r.memory.Save(ctx, ev.Content, "conversation", agentName)
 
-	return result.Content, nil
+	return &ExecutionResult{
+		Output:    ev.Content,
+		SessionID: ev.SessionID,
+		CostUSD:   ev.CostUSD,
+		NumTurns:  ev.NumTurns,
+	}, nil
 }
 
 // BridgeAdapter wraps *bridge.Bridge to satisfy BridgeExecutor.
@@ -117,7 +122,7 @@ func (a *BridgeAdapter) Execute(ctx context.Context, req bridge.Request) (*bridg
 }
 
 // DeliveryFunc is called after a job completes to deliver its output.
-type DeliveryFunc func(ctx context.Context, job CronJob, output string, execErr error) error
+type DeliveryFunc func(ctx context.Context, job CronJob, result *ExecutionResult, execErr error) error
 
 // NotifyingRuntime wraps a Runtime and delivers results after execution.
 type NotifyingRuntime struct {
@@ -134,16 +139,16 @@ func NewNotifyingRuntime(inner Runtime, deliver DeliveryFunc) *NotifyingRuntime 
 }
 
 // ExecuteJob runs the inner runtime and delivers the result.
-func (r *NotifyingRuntime) ExecuteJob(ctx context.Context, job CronJob) (string, error) {
+func (r *NotifyingRuntime) ExecuteJob(ctx context.Context, job CronJob) (*ExecutionResult, error) {
 	if r.inner == nil {
-		return "", fmt.Errorf("inner runtime is required")
+		return nil, fmt.Errorf("inner runtime is required")
 	}
 
-	output, err := r.inner.ExecuteJob(ctx, job)
+	result, err := r.inner.ExecuteJob(ctx, job)
 	if r.deliver != nil {
-		if deliverErr := r.deliver(ctx, job, output, err); deliverErr != nil {
-			return output, deliverErr
+		if deliverErr := r.deliver(ctx, job, result, err); deliverErr != nil {
+			return result, deliverErr
 		}
 	}
-	return output, err
+	return result, err
 }

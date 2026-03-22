@@ -102,12 +102,12 @@ type fakeCronRuntime struct {
 	seen    []string
 }
 
-func (f *fakeCronRuntime) ExecuteJob(ctx context.Context, job CronJob) (string, error) {
+func (f *fakeCronRuntime) ExecuteJob(ctx context.Context, job CronJob) (*ExecutionResult, error) {
 	f.seen = append(f.seen, job.ID)
 	if err := f.errors[job.ID]; err != nil {
-		return "", err
+		return nil, err
 	}
-	return f.results[job.ID], nil
+	return &ExecutionResult{Output: f.results[job.ID]}, nil
 }
 
 type staticClock struct {

@@ -35,6 +35,17 @@ type CronExecution struct {
 	Status        string
 	OutputSummary string
 	ErrorMessage  string
+	SessionID     string
+	CostUSD       float64
+	TokensUsed    int
+}
+
+// ExecutionResult holds the output and metadata from a job execution.
+type ExecutionResult struct {
+	Output    string
+	SessionID string
+	CostUSD   float64
+	NumTurns  int
 }
 
 // Store persists cron jobs and executions.
@@ -43,6 +54,7 @@ type Store interface {
 	UpdateJob(ctx context.Context, job CronJob) error
 	DeleteJob(ctx context.Context, jobID string) error
 	GetJob(ctx context.Context, jobID string) (*CronJob, error)
+	ResolveJobID(ctx context.Context, prefix string) (string, error)
 	ListJobsByChat(ctx context.Context, chatID int64) ([]CronJob, error)
 	ListDueJobs(ctx context.Context, now time.Time, limit int) ([]CronJob, error)
 	RecordExecution(ctx context.Context, exec CronExecution) error
@@ -54,9 +66,9 @@ type BridgeExecutor interface {
 	Execute(ctx context.Context, req bridge.Request) (*bridge.Event, error)
 }
 
-// Runtime executes a cron job and returns its output.
+// Runtime executes a cron job and returns its result.
 type Runtime interface {
-	ExecuteJob(ctx context.Context, job CronJob) (string, error)
+	ExecuteJob(ctx context.Context, job CronJob) (*ExecutionResult, error)
 }
 
 // Clock abstracts time for testing.

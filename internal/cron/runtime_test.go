@@ -86,12 +86,12 @@ func TestBridgeCronRuntime_ExecuteJob(t *testing.T) {
 		Active:       true,
 	}
 
-	answer, err := runtime.ExecuteJob(context.Background(), job)
+	result, err := runtime.ExecuteJob(context.Background(), job)
 	if err != nil {
 		t.Fatalf("ExecuteJob() error = %v", err)
 	}
-	if answer != "daily summary ready" {
-		t.Fatalf("unexpected answer: %q", answer)
+	if result.Output != "daily summary ready" {
+		t.Fatalf("unexpected output: %q", result.Output)
 	}
 
 	// Verify bridge request
@@ -149,12 +149,12 @@ func TestBridgeCronRuntime_NoAgent(t *testing.T) {
 		Prompt: "test",
 	}
 
-	output, err := runtime.ExecuteJob(context.Background(), job)
+	result, err := runtime.ExecuteJob(context.Background(), job)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if output != "done without agent" {
-		t.Fatalf("output = %q", output)
+	if result.Output != "done without agent" {
+		t.Fatalf("output = %q", result.Output)
 	}
 }
 
@@ -247,35 +247,35 @@ func TestBridgeCronRuntime_MemoryInjectFailureNonFatal(t *testing.T) {
 	job := CronJob{ID: "job-6", AgentName: "test", Prompt: "test"}
 
 	// Should succeed despite memory inject failure
-	answer, err := runtime.ExecuteJob(context.Background(), job)
+	result, err := runtime.ExecuteJob(context.Background(), job)
 	if err != nil {
 		t.Fatalf("ExecuteJob() error = %v", err)
 	}
-	if answer != "ok" {
-		t.Fatalf("unexpected answer: %q", answer)
+	if result.Output != "ok" {
+		t.Fatalf("unexpected output: %q", result.Output)
 	}
 }
 
 func TestNotifyingRuntime_Delivers(t *testing.T) {
 	t.Parallel()
 
-	inner := &stubRuntime{output: "hello", err: nil}
+	inner := &stubRuntime{result: &ExecutionResult{Output: "hello"}, err: nil}
 	var delivered bool
-	nr := NewNotifyingRuntime(inner, func(_ context.Context, _ CronJob, output string, _ error) error {
+	nr := NewNotifyingRuntime(inner, func(_ context.Context, _ CronJob, result *ExecutionResult, _ error) error {
 		delivered = true
-		if output != "hello" {
-			t.Fatalf("unexpected output in delivery: %q", output)
+		if result.Output != "hello" {
+			t.Fatalf("unexpected output in delivery: %q", result.Output)
 		}
 		return nil
 	})
 
 	job := CronJob{ID: "job-n1", AgentName: "test", Prompt: "test"}
-	out, err := nr.ExecuteJob(context.Background(), job)
+	result, err := nr.ExecuteJob(context.Background(), job)
 	if err != nil {
 		t.Fatalf("ExecuteJob() error = %v", err)
 	}
-	if out != "hello" {
-		t.Fatalf("unexpected output: %q", out)
+	if result.Output != "hello" {
+		t.Fatalf("unexpected output: %q", result.Output)
 	}
 	if !delivered {
 		t.Fatal("delivery func was not called")
@@ -295,12 +295,12 @@ func TestNotifyingRuntime_NilInner(t *testing.T) {
 // --- helpers ---
 
 type stubRuntime struct {
-	output string
+	result *ExecutionResult
 	err    error
 }
 
-func (s *stubRuntime) ExecuteJob(_ context.Context, _ CronJob) (string, error) {
-	return s.output, s.err
+func (s *stubRuntime) ExecuteJob(_ context.Context, _ CronJob) (*ExecutionResult, error) {
+	return s.result, s.err
 }
 
 func contains(s, substr string) bool {

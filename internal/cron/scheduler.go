@@ -88,7 +88,7 @@ func (s *Scheduler) runSingleJob(ctx context.Context, now time.Time, job CronJob
 	startedAt := now
 	log.Printf("cron.scheduler: executing job %s", job.ID)
 
-	output, runErr := s.runtime.ExecuteJob(ctx, job)
+	result, runErr := s.runtime.ExecuteJob(ctx, job)
 	finishedAt := s.clock.Now().UTC()
 
 	exec := CronExecution{
@@ -98,6 +98,13 @@ func (s *Scheduler) runSingleJob(ctx context.Context, now time.Time, job CronJob
 		FinishedAt: &finishedAt,
 	}
 
+	if result != nil {
+		exec.OutputSummary = result.Output
+		exec.SessionID = result.SessionID
+		exec.CostUSD = result.CostUSD
+		exec.TokensUsed = result.NumTurns
+	}
+
 	if runErr != nil {
 		exec.Status = "failed"
 		exec.ErrorMessage = runErr.Error()
@@ -105,7 +112,6 @@ func (s *Scheduler) runSingleJob(ctx context.Context, now time.Time, job CronJob
 		job.LastError = runErr.Error()
 	} else {
 		exec.Status = "success"
-		exec.OutputSummary = output
 		job.LastStatus = "success"
 		job.LastError = ""
 	}

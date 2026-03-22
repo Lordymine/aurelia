@@ -163,7 +163,11 @@ func bootstrapApp() (*app, error) {
 			memStore,
 		)
 
-		deliverToTelegram := func(ctx context.Context, job cron.CronJob, output string, execErr error) error {
+		deliverToTelegram := func(ctx context.Context, job cron.CronJob, result *cron.ExecutionResult, execErr error) error {
+			output := ""
+			if result != nil {
+				output = result.Output
+			}
 			log.Printf("Cron delivery: job=%s chat=%d output_len=%d err=%v", job.ID[:8], job.TargetChatID, len(output), execErr)
 			if job.TargetChatID == 0 {
 				log.Println("Cron delivery skipped: no chat ID")
