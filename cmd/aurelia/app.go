@@ -52,14 +52,13 @@ func bootstrapApp() (*app, error) {
 	// 3. Set provider env vars for Bridge
 	setProviderEnv(cfg)
 
-	// 4. Create Bridge (extract embedded bundle.js to ~/.aurelia/bridge/)
-	home, _ := os.UserHomeDir()
-	bridgeBundleDir := filepath.Join(home, ".aurelia", "bridge")
-	bundlePath, err := bridge.ExtractBundle(bridgeBundleDir)
-	if err != nil {
-		log.Printf("Warning: failed to extract bridge bundle: %v — falling back to npx tsx", err)
+	// 4. Create Bridge
+	bridgeDir := findBridgeDir()
+	bundlePath := filepath.Join(bridgeDir, "bundle.js")
+	if _, err := os.Stat(bundlePath); os.IsNotExist(err) {
+		bundlePath = "" // fallback to npx tsx index.ts
 	}
-	br := bridge.New(findBridgeDir(), bundlePath)
+	br := bridge.New(bridgeDir, bundlePath)
 
 	// 5. Create Embedder
 	embedder := createEmbedder()
