@@ -26,8 +26,7 @@ func (bc *BotController) whitelistMiddleware() telebot.MiddlewareFunc {
 }
 
 func (bc *BotController) registerContentRoutes() {
-	bc.bot.Handle("/start", bc.handleStartCommand)
-	bc.bot.Handle("/help", bc.handleStartCommand)
+	bc.bot.Handle("/help", bc.handleHelpCommand)
 	bc.bot.Handle("/cwd", bc.handleCwdCommand)
 	bc.bot.Handle("/reset", bc.handleResetCommand)
 	bc.bot.Handle("/cron", bc.handleCronCommand)
@@ -52,7 +51,7 @@ func (bc *BotController) registerSlashMenu() {
 	}
 }
 
-func (bc *BotController) handleStartCommand(c telebot.Context) error {
+func (bc *BotController) handleHelpCommand(c telebot.Context) error {
 	help := "Comandos disponíveis:\n\n" +
 		"/cwd <path> — Definir diretório de trabalho\n" +
 		"/reset — Resetar sessão (conversa nova)\n" +
