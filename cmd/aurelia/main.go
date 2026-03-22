@@ -21,6 +21,11 @@ func main() {
 				log.Fatalf("Cron command failed: %v", err)
 			}
 			return
+		case "telegram":
+			if err := runTelegramCLI(os.Args[2:]); err != nil {
+				log.Fatalf("Telegram command failed: %v", err)
+			}
+			return
 		default:
 			log.Fatalf("Unknown command: %s", os.Args[1])
 		}

@@ -38,18 +38,18 @@ func (bc *BotController) processInput(c telebot.Context, text string, parts [][]
 	}
 
 	// 2. Build system prompt (sync — fast)
-	systemPrompt, err := bc.buildSystemPrompt(userText, agent, c.Chat().ID)
+	chatID := c.Chat().ID
+	messageID := c.Message().ID
+	systemPrompt, err := bc.buildSystemPrompt(userText, agent, chatID, messageID)
 	if err != nil {
 		log.Printf("Failed to build system prompt: %v", err)
 		return SendError(bc.bot, c.Chat(), "Falha ao montar o prompt de sistema.")
 	}
 
 	// 3. Build bridge request (sync)
-	req := bc.buildBridgeRequest(userText, systemPrompt, agent, c.Chat().ID)
+	req := bc.buildBridgeRequest(userText, systemPrompt, agent, chatID)
 
 	// 4. Launch async execution — don't block the handler
-	chatID := c.Chat().ID
-	messageID := c.Message().ID
 	go bc.executeAsync(chatID, messageID, req, userText)
 
 	return nil
@@ -233,8 +233,8 @@ func (bc *BotController) processBridgeEventsAsync(chat *telebot.Chat, ch <-chan 
 	}
 }
 
-// buildSystemPrompt assembles the system prompt from persona, agent, cron instructions, and memory.
-func (bc *BotController) buildSystemPrompt(userText string, agent *agents.Agent, chatID int64) (string, error) {
+// buildSystemPrompt assembles the system prompt from persona, agent, cron/telegram instructions, and memory.
+func (bc *BotController) buildSystemPrompt(userText string, agent *agents.Agent, chatID int64, messageID int) (string, error) {
 	var sections []string
 
 	// Persona prompt
@@ -255,6 +255,9 @@ func (bc *BotController) buildSystemPrompt(userText string, agent *agents.Agent,
 	// Cron scheduling instructions
 	sections = append(sections, bc.buildCronInstructions(chatID))
 
+	// Telegram interaction instructions
+	sections = append(sections, bc.buildTelegramInstructions(chatID, messageID))
+
 	// Memory injection
 	if bc.memory != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -268,6 +271,30 @@ func (bc *BotController) buildSystemPrompt(userText string, agent *agents.Agent,
 	}
 
 	return strings.Join(sections, "\n\n"), nil
+}
+
+// buildTelegramInstructions returns instructions for interacting with the Telegram chat.
+func (bc *BotController) buildTelegramInstructions(chatID int64, messageID int) string {
+	bin := "aurelia"
+	if bc.exePath != "" {
+		bin = bc.exePath
+	}
+
+	return fmt.Sprintf(`## Telegram Context
+
+You ARE the Telegram bot. The user is talking to you via Telegram chat %d.
+The current message ID is %d.
+
+You can interact with the chat using the Aurelia CLI via Bash:
+
+React to a message with emoji:
+`+"`%s telegram react %d %d <emoji>`"+`
+
+Available emojis: 👍 👎 ❤️ 🔥 👀 🎉 😂 🤔 💯 🎯 ✅ ❌
+
+Use reactions naturally and contextually — react when it adds to the conversation, not on every message.
+DO NOT use the Telegram MCP plugin for reactions or replies — use the Aurelia CLI above.`,
+		chatID, messageID, bin, chatID, messageID)
 }
 
 // buildCronInstructions returns the system prompt section that teaches the agent

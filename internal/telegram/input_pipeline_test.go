@@ -18,7 +18,7 @@ func TestBuildSystemPrompt_WithoutDependencies(t *testing.T) {
 		},
 	}
 
-	prompt, err := bc.buildSystemPrompt("hello", nil, 0)
+	prompt, err := bc.buildSystemPrompt("hello", nil, 0, 0)
 	if err != nil {
 		t.Fatalf("buildSystemPrompt() error = %v", err)
 	}
@@ -42,7 +42,7 @@ func TestBuildSystemPrompt_WithAgent(t *testing.T) {
 		Prompt: "You are a coding assistant.",
 	}
 
-	prompt, err := bc.buildSystemPrompt("write some code", agent, 0)
+	prompt, err := bc.buildSystemPrompt("write some code", agent, 0, 0)
 	if err != nil {
 		t.Fatalf("buildSystemPrompt() error = %v", err)
 	}
@@ -68,7 +68,7 @@ func TestBuildSystemPrompt_AgentWithEmptyPrompt(t *testing.T) {
 		Name: "empty",
 	}
 
-	prompt, err := bc.buildSystemPrompt("hello", agent, 0)
+	prompt, err := bc.buildSystemPrompt("hello", agent, 0, 0)
 	if err != nil {
 		t.Fatalf("buildSystemPrompt() error = %v", err)
 	}
