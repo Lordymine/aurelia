@@ -258,26 +258,22 @@ function main(): void {
     terminal: false,
   });
 
-  // Process one line at a time, sequentially
-  let processing: Promise<void> = Promise.resolve();
-
+  // Process requests concurrently — each query runs independently
   rl.on("line", (line: string) => {
     const trimmed = line.trim();
     if (!trimmed) return;
 
-    // Chain requests sequentially — one query at a time
-    processing = processing
-      .then(() => handleRequest(trimmed))
-      .catch((err: unknown) => {
-        const errMsg = err instanceof Error ? err.message : String(err);
-        log(`unhandled error in request processing: ${errMsg}`);
-        emit({ event: "error", message: `internal bridge error: ${errMsg}` });
-      });
+    // Fire and forget — each request runs in its own async context
+    handleRequest(trimmed).catch((err: unknown) => {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      log(`unhandled error in request processing: ${errMsg}`);
+      emit({ event: "error", message: `internal bridge error: ${errMsg}` });
+    });
   });
 
   rl.on("close", () => {
     log("stdin closed — shutting down");
-    processing.then(() => process.exit(0));
+    process.exit(0);
   });
 
   // Catch unhandled rejections so the bridge never crashes silently

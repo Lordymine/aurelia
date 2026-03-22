@@ -1,0 +1,191 @@
+- generic [ref=e2]:
+  - heading "0 notifications" [level=2] [ref=e3]
+  - generic [ref=e4]:
+    - generic:
+      - button [ref=e5] [cursor=pointer]:
+        - generic [ref=e7]: Skip to main content
+      - button [ref=e8] [cursor=pointer]
+    - generic [ref=e11]:
+      - banner [ref=e13]:
+        - generic [ref=e15]:
+          - button [ref=e16] [cursor=pointer]
+          - generic [ref=e19]:
+            - navigation [ref=e22]:
+              - list [ref=e23]:
+                - listitem [ref=e24]:
+                  - button "Home, 1 new notification" [ref=e25] [cursor=pointer]:
+                    - generic [ref=e29]: Home
+                - listitem [ref=e30]:
+                  - link "My Network, 0 new notifications" [ref=e31] [cursor=pointer]:
+                    - /url: https://www.linkedin.com/mynetwork
+                    - generic [ref=e35]: My Network
+                - listitem [ref=e36]:
+                  - button "Jobs, 0 new notifications" [ref=e37] [cursor=pointer]:
+                    - generic [ref=e41]: Jobs
+                - listitem [ref=e42]:
+                  - link "Messaging, 0 new notifications" [ref=e43] [cursor=pointer]:
+                    - /url: https://www.linkedin.com/messaging/
+                    - generic [ref=e47]: Messaging
+                - listitem [ref=e48]:
+                  - link "Notifications, 0 new notifications" [ref=e49] [cursor=pointer]:
+                    - /url: https://www.linkedin.com/notifications/
+                    - generic [ref=e53]: Notifications
+                - listitem [ref=e54]:
+                  - button "Me" [ref=e55] [cursor=pointer]:
+                    - figure [ref=e57]
+                    - generic [ref=e59]: Me
+            - navigation [ref=e63]:
+              - list [ref=e64]:
+                - listitem [ref=e65]:
+                  - button "For Business" [ref=e66] [cursor=pointer]:
+                    - generic [ref=e70]: For Business
+                - listitem [ref=e72]:
+                  - link "0 new notifications" [ref=e73] [cursor=pointer]:
+                    - /url: https://www.linkedin.com/campaignmanager/accounts/
+                    - generic [ref=e77]: Advertise
+      - main [ref=e78]:
+        - main [ref=e80]:
+          - generic [ref=e82]:
+            - generic [ref=e86]:
+              - generic [ref=e90]:
+                - link "Premium" [ref=e91] [cursor=pointer]:
+                  - /url: https://www.linkedin.com/in/rafael-oliveira-01188829a/
+                  - generic [ref=e92]:
+                    - generic [ref=e93]:
+                      - figure [ref=e94]
+                      - paragraph [ref=e96]: Premium
+                    - figure [ref=e99]
+                - generic [ref=e100]:
+                  - link "Rafael Oliveira, Senior Software Architect | AI Applications, LLM Agents & Scalable Architectures, Teresina, Piauí, Premium profile" [ref=e101] [cursor=pointer]:
+                    - /url: https://www.linkedin.com/in/rafael-oliveira-01188829a/
+                    - generic "Rafael Oliveira, Senior Software Architect | AI Applications, LLM Agents & Scalable Architectures, Teresina, Piauí, Premium profile" [ref=e102]:
+                      - paragraph [ref=e105]: Rafael Oliveira
+                      - paragraph [ref=e108]: Senior Software Architect | AI Applications, LLM Agents & Scalable Architectures
+                      - paragraph [ref=e109]: Teresina, Piauí
+                  - link "Descomplica" [ref=e110] [cursor=pointer]:
+                    - /url: https://www.linkedin.com/in/rafael-oliveira-01188829a/
+                    - generic [ref=e111]:
+                      - figure [ref=e112]
+                      - paragraph [ref=e113]: Descomplica
+              - generic [ref=e116]:
+                - paragraph [ref=e117]: Help a friend get ahead
+                - link "Share Premium for free" [ref=e119] [cursor=pointer]:
+                  - /url: https://linkedin.com/premium/referrals/?referralType=PREMIUM&upsellOrderOrigin=premium_referrals_homepage_identity_1_sided_entry
+                  - paragraph [ref=e122]: Share Premium for free
+              - generic [ref=e124]:
+                - menu [ref=e125]:
+                  - link "Profile viewers 201" [ref=e127] [cursor=pointer]:
+                    - /url: https://www.linkedin.com/me/profile-views/
+                    - generic "Profile viewers 201" [ref=e128]:
+                      - paragraph [ref=e130]: Profile viewers
+                      - paragraph [ref=e131]: "201"
+                  - link "Post impressions 599" [ref=e133] [cursor=pointer]:
+                    - /url: https://www.linkedin.com/analytics/creator/content/
+                    - generic "Post impressions 599" [ref=e134]:
+                      - paragraph [ref=e136]: Post impressions
+                      - paragraph [ref=e137]: "599"
+                - menu [ref=e139]:
+                  - link "Your Premium features" [ref=e141] [cursor=pointer]:
+                    - /url: https://www.linkedin.com/premium/my-premium/
+                    - paragraph [ref=e144]: Your Premium features
+              - menu [ref=e147]:
+                - link "Saved items" [ref=e148] [cursor=pointer]:
+                  - /url: https://www.linkedin.com/my-items/saved-posts/
+                  - paragraph [ref=e151]: Saved items
+                - link "Groups" [ref=e152] [cursor=pointer]:
+                  - /url: https://www.linkedin.com/groups/
+                  - paragraph [ref=e155]: Groups
+                - link "Newsletters" [ref=e156] [cursor=pointer]:
+                  - /url: https://www.linkedin.com/mynetwork/network-manager/newsletters/
+                  - paragraph [ref=e159]: Newsletters
+                - link "Events" [ref=e160] [cursor=pointer]:
+                  - /url: https://www.linkedin.com/events/
+                  - paragraph [ref=e163]: Events
+            - list [ref=e165]:
+              - generic [ref=e167]:
+                - generic [ref=e168]:
+                  - link [ref=e169] [cursor=pointer]:
+                    - /url: https://www.linkedin.com/in/rafael-oliveira-01188829a/
+                    - figure [ref=e170]
+                  - button "Start a post" [ref=e172] [cursor=pointer]:
+                    - generic "Start a post" [ref=e173]:
+                      - generic [ref=e175]:
+                        - paragraph [ref=e176]: Start a post
+                        - generic:
+                          - paragraph
+                - generic [ref=e177]:
+                  - button "Video" [ref=e178] [cursor=pointer]:
+                    - paragraph [ref=e181]: Video
+                  - button "Photo" [ref=e182] [cursor=pointer]:
+                    - paragraph [ref=e185]: Photo
+                  - button "Write article" [ref=e186] [cursor=pointer]:
+                    - paragraph [ref=e189]: Write article
+              - progressbar "In progress" [ref=e193]
+            - generic [ref=e195]:
+              - generic [ref=e196]:
+                - generic [ref=e199]:
+                  - paragraph [ref=e200]: Today’s puzzles
+                  - link "Zip - a quick brain teaser Solve in 60s or less!" [ref=e201] [cursor=pointer]:
+                    - /url: /games/zip/
+                    - generic [ref=e202]:
+                      - figure [ref=e203]
+                      - generic [ref=e204]:
+                        - paragraph [ref=e205]: Zip - a quick brain teaser
+                        - paragraph [ref=e206]: Solve in 60s or less!
+                - generic [ref=e209]:
+                  - paragraph [ref=e210]: Add to your feed
+                  - link "Gamedev Street | Gaming Jobs Company • Computer Games" [ref=e211] [cursor=pointer]:
+                    - /url: https://www.linkedin.com/company/gamedev-street/
+                    - generic [ref=e212]:
+                      - figure [ref=e213]
+                      - generic [ref=e214]:
+                        - paragraph [ref=e217]: Gamedev Street | Gaming Jobs
+                        - paragraph [ref=e219]: Company • Computer Games
+                  - link "Unity Company • Software Development" [ref=e220] [cursor=pointer]:
+                    - /url: https://www.linkedin.com/company/unity/
+                    - generic [ref=e221]:
+                      - figure [ref=e222]
+                      - generic [ref=e223]:
+                        - paragraph [ref=e226]: Unity
+                        - paragraph [ref=e228]: Company • Software Development
+                  - link "Jobs in Games Company • Staffing and Recruiting" [ref=e229] [cursor=pointer]:
+                    - /url: https://www.linkedin.com/company/vagas-em-games/
+                    - generic [ref=e230]:
+                      - figure [ref=e231]
+                      - generic [ref=e232]:
+                        - paragraph [ref=e235]: Jobs in Games
+                        - paragraph [ref=e237]: Company • Staffing and Recruiting
+                  - link "View all recommendations" [ref=e238] [cursor=pointer]:
+                    - /url: /mynetwork/discover-hub/
+                    - generic [ref=e241]: View all recommendations
+              - generic [ref=e243]:
+                - iframe [ref=e246]:
+                  
+                - generic [ref=e247]:
+                  - generic [ref=e248]:
+                    - link "About" [ref=e249] [cursor=pointer]:
+                      - /url: https://about.linkedin.com/
+                      - paragraph [ref=e250]: About
+                    - link "Accessibility" [ref=e251] [cursor=pointer]:
+                      - /url: https://www.linkedin.com/accessibility/
+                      - paragraph [ref=e252]: Accessibility
+                    - link "Help Center" [ref=e253] [cursor=pointer]:
+                      - /url: https://www.linkedin.com/help/linkedin/
+                      - paragraph [ref=e254]: Help Center
+                    - button "Privacy & Terms" [ref=e255] [cursor=pointer]:
+                      - paragraph [ref=e257]: Privacy & Terms
+                    - link "Ad Choices" [ref=e259] [cursor=pointer]:
+                      - /url: https://www.linkedin.com/help/linkedin/answer/62931/
+                      - paragraph [ref=e260]: Ad Choices
+                    - link "Advertising" [ref=e261] [cursor=pointer]:
+                      - /url: https://www.linkedin.com/ad/start/?trk=n_nav_ads_rr
+                      - paragraph [ref=e262]: Advertising
+                    - button "Business Services" [ref=e263] [cursor=pointer]:
+                      - paragraph [ref=e265]: Business Services
+                    - link "Get the LinkedIn app" [ref=e267] [cursor=pointer]:
+                      - /url: https://www.linkedin.com/mobile/
+                      - paragraph [ref=e268]: Get the LinkedIn app
+                    - link "More" [ref=e269] [cursor=pointer]:
+                      - /url: https://www.linkedin.com/
+                      - paragraph [ref=e270]: More
+                  - paragraph [ref=e273]: LinkedIn Corporation © 2026
