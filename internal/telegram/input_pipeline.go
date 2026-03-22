@@ -13,6 +13,8 @@ import (
 	"github.com/kocar/aurelia/internal/bridge"
 )
 
+const memorySaveTruncateLen = 500
+
 func (bc *BotController) processInput(c telebot.Context, text string, parts [][]byte, requiresAudio bool) error {
 	_ = parts
 
@@ -98,11 +100,7 @@ func (bc *BotController) buildBridgeRequest(userText, systemPrompt string, agent
 			SystemPrompt:   systemPrompt,
 			MaxTurns:       bc.config.MaxIterations,
 			PermissionMode: "bypassPermissions",
-			DisabledTools: []string{
-				"mcp__plugin_telegram_telegram__reply",
-				"mcp__plugin_telegram_telegram__react",
-				"mcp__plugin_telegram_telegram__edit_message",
-			},
+			DisabledTools: bridge.TelegramPluginTools,
 		},
 	}
 
@@ -355,7 +353,7 @@ func (bc *BotController) saveToMemory(userText, response string) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	content := fmt.Sprintf("User: %s\nAssistant: %s", userText, truncate(response, 500))
+	content := fmt.Sprintf("User: %s\nAssistant: %s", userText, truncate(response, memorySaveTruncateLen))
 	if err := bc.memory.Save(ctx, content, "conversation", "telegram"); err != nil {
 		log.Printf("Memory save error (non-fatal): %v", err)
 	}

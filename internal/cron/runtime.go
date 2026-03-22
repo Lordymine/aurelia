@@ -64,11 +64,7 @@ func (r *BridgeCronRuntime) ExecuteJob(ctx context.Context, job CronJob) (string
 	opts := bridge.RequestOptions{
 		SystemPrompt:   systemPrompt,
 		PermissionMode: "bypassPermissions",
-		DisabledTools: []string{
-			"mcp__plugin_telegram_telegram__reply",
-			"mcp__plugin_telegram_telegram__react",
-			"mcp__plugin_telegram_telegram__edit_message",
-		},
+		DisabledTools: bridge.TelegramPluginTools,
 	}
 
 	// 3. Apply agent config if available

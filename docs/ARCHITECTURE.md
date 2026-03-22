@@ -30,7 +30,7 @@ internal/
   bridge/          [Go client for the TS Bridge process]
   config/          [configuration loading and validation]
   cron/            [schedule store, scheduler, bridge-backed runtime]
-  memory/          [semantic memory with sqlite-vec embeddings]
+  memory/          [semantic memory with local ONNX embeddings]
   persona/         [identity files, prompt assembly]
   runtime/         [instance and project path resolution]
   telegram/        [Telegram bot handlers]
@@ -41,16 +41,16 @@ pkg/
 
 ## Bridge Protocol
 
-The Bridge is the boundary between Go and Claude. Go spawns a short-lived TypeScript process per execution, communicates via stdin/stdout using JSON/NDJSON.
+The Bridge is the boundary between Go and Claude. Go starts a long-lived multiplexed TypeScript process, communicates via stdin/stdout using NDJSON with request multiplexing via `request_id`.
 
 Flow:
 
-1. Go serializes a `Request` (command, prompt, options) as JSON to stdin
+1. Go serializes a `Request` (command, prompt, request_id, options) as JSON to stdin
 2. Bridge process reads the request, calls the Claude SDK
-3. Bridge streams NDJSON events back on stdout (text, tool_use, tool_result, result, error)
-4. Go reads events and acts on them (forwarding text to Telegram, storing results, etc.)
+3. Bridge streams NDJSON events back on stdout (system, tool_use, assistant, result, error, pong)
+4. Go reads events, correlates by request_id, and acts on them (forwarding text to Telegram, storing results, etc.)
 
-The Bridge is stateless from Go's perspective — each call is independent.
+The Bridge is long-lived — multiple concurrent requests are multiplexed over the same process.
 
 ## Agent Registry
 
@@ -64,7 +64,7 @@ Scheduled agents are registered with the cron scheduler at startup.
 
 ## Memory
 
-The memory system uses SQLite with sqlite-vec for semantic search.
+The memory system uses SQLite with BLOB embeddings and Go-side cosine similarity for semantic search.
 
 Capabilities:
 
@@ -72,7 +72,7 @@ Capabilities:
 - Semantic similarity search
 - Deterministic recent-message window
 
-Embeddings are generated via configurable provider (default: Gemini text-embedding-004).
+Embeddings are generated locally via ONNX model (all-MiniLM-L6-v2) — no external embedding provider is needed.
 
 ## Runtime Scope Separation
 
@@ -106,7 +106,7 @@ External codebase the agent acts on. Project-specific rules stay local.
 
 ### Memory
 
-`internal/memory` provides semantic storage and retrieval backed by SQLite + sqlite-vec.
+`internal/memory` provides semantic storage and retrieval backed by SQLite + local ONNX embeddings.
 
 ### Scheduling
 
@@ -127,7 +127,7 @@ External codebase the agent acts on. Project-specific rules stay local.
 
 - Bridge-based LLM execution via Claude SDK
 - Agent registry with markdown-defined agents
-- Semantic memory with sqlite-vec
+- Semantic memory with local ONNX embeddings
 - Telegram text and audio input
 - Cron scheduling with bridge-backed execution
 - Configurable multi-provider support
@@ -135,6 +135,5 @@ External codebase the agent acts on. Project-specific rules stay local.
 
 ## Current Constraints
 
-- Bridge requires Node.js runtime and `npx` available on PATH
-- Embedding provider must be configured separately from LLM provider
+- Bridge requires Node.js runtime available on PATH
 - No multi-agent orchestration yet (single agent per execution)

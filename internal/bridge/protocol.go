@@ -1,5 +1,13 @@
 package bridge
 
+// TelegramPluginTools lists the Telegram MCP plugin tools that should be
+// blocked when Aurelia is the Telegram bot (to prevent duplicate delivery).
+var TelegramPluginTools = []string{
+	"mcp__plugin_telegram_telegram__reply",
+	"mcp__plugin_telegram_telegram__react",
+	"mcp__plugin_telegram_telegram__edit_message",
+}
+
 // Request sent to Bridge process via stdin as JSON.
 type Request struct {
 	Command   string         `json:"command"`

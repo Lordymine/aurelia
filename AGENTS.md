@@ -12,18 +12,18 @@ Aurelia OS is a local-first agent operating system written in Go. It delegates L
 User ──► Telegram ──► Go runtime ──► Bridge (TS) ──► Claude SDK
                           │
                           ├── Agent Registry (markdown-defined agents)
-                          ├── Semantic Memory (sqlite-vec)
+                          ├── Semantic Memory (SQLite + ONNX)
                           ├── Cron Scheduler (bridge-backed)
                           └── Persona (identity + context)
 ```
 
 ### Bridge Protocol
 
-The Bridge (`bridge/index.ts`) is a short-lived TypeScript process. Go spawns it per execution via `npx tsx index.ts`, sends a JSON request on stdin, and reads NDJSON events from stdout.
+The Bridge (`bridge/index.ts`) is a long-lived TypeScript process with request multiplexing via `request_id`. Go starts it once and communicates via stdin/stdout NDJSON.
 
-Request shape: `{ command, prompt, options: { model, cwd, system_prompt, resume, max_turns, permission_mode, mcp_servers, allowed_tools } }`
+Request shape: `{ command, prompt, request_id, options: { model, cwd, system_prompt, resume, max_turns, permission_mode, mcp_servers, allowed_tools, disabled_tools } }`
 
-Events: `{ type: "text" | "tool_use" | "tool_result" | "result" | "error", ... }`
+Events: `{ type: "system" | "tool_use" | "assistant" | "result" | "error" | "pong", ... }`
 
 Source: `internal/bridge/` (Go client), `bridge/index.ts` (TS process).
 
@@ -55,21 +55,19 @@ Runtime config lives in `~/.aurelia/config/app.json`:
 
 ```json
 {
-  "default_provider": "anthropic",
-  "default_model": "claude-sonnet-4-6",
-  "providers": {
-    "anthropic": { "api_key": "..." }
-  },
+  "llm_provider": "anthropic",
+  "llm_model": "claude-sonnet-4-6",
   "telegram_bot_token": "...",
   "telegram_allowed_user_ids": [123],
-  "embedding_provider": "gemini",
-  "embedding_model": "text-embedding-004",
-  "embedding_api_key": "...",
+  "anthropic_api_key": "...",
   "stt_provider": "groq",
+  "groq_api_key": "...",
   "max_iterations": 500,
   "memory_window_size": 20
 }
 ```
+
+Embeddings use a local ONNX model (all-MiniLM-L6-v2) — no external embedding provider is needed.
 
 Source: `internal/config/`.
 
@@ -80,7 +78,7 @@ Source: `internal/config/`.
 | `cmd/aurelia/` | Entrypoint, wiring, onboarding |
 | `internal/bridge/` | Go client for the TS Bridge process |
 | `internal/agents/` | Agent registry (load markdown definitions) |
-| `internal/memory/` | Semantic memory with sqlite-vec embeddings |
+| `internal/memory/` | Semantic memory with local ONNX embeddings |
 | `internal/persona/` | Identity files, prompt assembly |
 | `internal/cron/` | Schedule store, scheduler, bridge-backed runtime |
 | `internal/telegram/` | Telegram bot handlers |

@@ -194,16 +194,6 @@ func buildDocumentInput(caption, filename, mimeType, filePath string) string {
 	return fmt.Sprintf("%s\n\n[Analise o anexo %s]:\n%s", caption, filename, extractedText)
 }
 
-func detectImageMIMEType(filename, mimeType string) string {
-	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(mimeType)), "image/") {
-		return mimeType
-	}
-	if guessed := mime.TypeByExtension(strings.ToLower(filepath.Ext(filename))); strings.HasPrefix(guessed, "image/") {
-		return guessed
-	}
-	return "image/jpeg"
-}
-
 func (bc *BotController) storeAlbumPhoto(albumID string, messageID int, caption string, photo telebot.Photo) bool {
 	bc.albumMu.Lock()
 	defer bc.albumMu.Unlock()

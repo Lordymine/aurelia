@@ -30,20 +30,6 @@ func TestIsSupportedImageDocument(t *testing.T) {
 	}
 }
 
-func TestDetectImageMIMEType(t *testing.T) {
-	t.Parallel()
-
-	if got := detectImageMIMEType("photo.png", ""); got != "image/png" {
-		t.Fatalf("expected extension-based mime image/png, got %q", got)
-	}
-	if got := detectImageMIMEType("photo.bin", "image/webp"); got != "image/webp" {
-		t.Fatalf("expected explicit mime to win, got %q", got)
-	}
-	if got := detectImageMIMEType("photo.unknown", ""); got != "image/jpeg" {
-		t.Fatalf("expected jpeg fallback, got %q", got)
-	}
-}
-
 func TestStoreAndFlushAlbumPhotos(t *testing.T) {
 	t.Parallel()
 

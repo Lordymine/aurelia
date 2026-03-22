@@ -2,8 +2,6 @@ package telegram
 
 import (
 	"log"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -11,6 +9,7 @@ import (
 )
 
 const telegramMessageLimit = 3900
+const interChunkDelay = 200 * time.Millisecond
 
 type messageSender interface {
 	Send(to telebot.Recipient, what interface{}, opts ...interface{}) (*telebot.Message, error)
@@ -28,7 +27,7 @@ func sendTextWithSender(sender messageSender, chat *telebot.Chat, text string, l
 			ParseMode: telebot.ModeHTML,
 		})
 		if err == nil {
-			time.Sleep(200 * time.Millisecond)
+			time.Sleep(interChunkDelay)
 			continue
 		}
 
@@ -39,13 +38,13 @@ func sendTextWithSender(sender messageSender, chat *telebot.Chat, text string, l
 				log.Printf("Hit rate limit in chunk sending. Retrying in %v...", floodErr.RetryAfter)
 				time.Sleep(time.Duration(floodErr.RetryAfter) * time.Second)
 				if _, retryErr := sender.Send(chat, chunk); retryErr == nil {
-					time.Sleep(200 * time.Millisecond)
+					time.Sleep(interChunkDelay)
 					continue
 				}
 			}
 			return err
 		}
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(interChunkDelay)
 	}
 	return nil
 }
@@ -85,27 +84,6 @@ func bestSplitIndex(text string, limit int) int {
 	return len(string(runes[:limit]))
 }
 
-func SendDocument(bot *telebot.Bot, chat *telebot.Chat, filename, content string) error {
-	tmpDir := os.TempDir()
-	path := filepath.Join(tmpDir, filename)
-
-	err := os.WriteFile(path, []byte(content), 0644)
-	if err != nil {
-		log.Println("SendDocument tmp write failed, sending as fallback text...")
-		return SendText(bot, chat, "Nao consegui gerar arq, segue texto puro:\n\n"+content)
-	}
-	defer func() { _ = os.Remove(path) }()
-
-	doc := &telebot.Document{
-		File:     telebot.FromDisk(path),
-		FileName: filename,
-		MIME:     "text/markdown",
-	}
-
-	_, err = bot.Send(chat, doc)
-	return err
-}
-
 func SendTextReply(bot *telebot.Bot, chat *telebot.Chat, text string, replyToID int) error {
 	if replyToID == 0 {
 		return SendText(bot, chat, text)
@@ -127,7 +105,7 @@ func sendTextReplyWithSender(sender messageSender, chat *telebot.Chat, text stri
 
 		_, err := sender.Send(chat, htmlChunk, opts)
 		if err == nil {
-			time.Sleep(200 * time.Millisecond)
+			time.Sleep(interChunkDelay)
 			continue
 		}
 
@@ -140,7 +118,7 @@ func sendTextReplyWithSender(sender messageSender, chat *telebot.Chat, text stri
 		if err != nil {
 			return err
 		}
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(interChunkDelay)
 	}
 	return nil
 }
