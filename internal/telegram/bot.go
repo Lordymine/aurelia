@@ -27,6 +27,7 @@ type BotController struct {
 	stt              stt.Transcriber
 	cronHandler      *CronCommandHandler
 	sessions         *sessionStore
+	tracker          *sessionTracker
 	personasDir      string
 	exePath          string // path to aurelia binary for CLI instructions in system prompt
 	bootstrapMu      sync.Mutex
@@ -79,6 +80,7 @@ func NewBotController(
 		stt:              s,
 		cronHandler:      cronHandler,
 		sessions:         newSessionStore(),
+		tracker:          newSessionTracker(),
 		personasDir:      personasDir,
 		exePath:          exePath,
 		pendingBootstrap: make(map[int64]bootstrapState),

@@ -29,6 +29,9 @@ func (bc *BotController) registerContentRoutes() {
 	bc.bot.Handle("/help", bc.handleHelpCommand)
 	bc.bot.Handle("/cwd", bc.handleCwdCommand)
 	bc.bot.Handle("/reset", bc.handleResetCommand)
+	bc.bot.Handle("/new", bc.handleResetCommand)
+	bc.bot.Handle("/compact", bc.handleResetCommand)
+	bc.bot.Handle("/usage", bc.handleUsageCommand)
 	bc.bot.Handle("/cron", bc.handleCronCommand)
 	bc.bot.Handle("/agents", bc.handleAgentsCommand)
 	bc.bot.Handle(telebot.OnText, bc.handleText)
@@ -40,8 +43,9 @@ func (bc *BotController) registerContentRoutes() {
 
 func (bc *BotController) registerSlashMenu() {
 	commands := []telebot.Command{
+		{Text: "new", Description: "Nova sessão (limpa contexto)"},
+		{Text: "usage", Description: "Ver uso de tokens da sessão"},
 		{Text: "cwd", Description: "Definir diretório de trabalho"},
-		{Text: "reset", Description: "Resetar sessão (conversa nova)"},
 		{Text: "cron", Description: "Gerenciar agendamentos"},
 		{Text: "agents", Description: "Listar agentes disponíveis"},
 		{Text: "help", Description: "Mostrar comandos disponíveis"},
@@ -53,8 +57,9 @@ func (bc *BotController) registerSlashMenu() {
 
 func (bc *BotController) handleHelpCommand(c telebot.Context) error {
 	help := "Comandos disponíveis:\n\n" +
+		"/new — Nova sessão (limpa contexto)\n" +
+		"/usage — Ver uso de tokens da sessão\n" +
 		"/cwd <path> — Definir diretório de trabalho\n" +
-		"/reset — Resetar sessão (conversa nova)\n" +
 		"/cron — Gerenciar agendamentos\n" +
 		"/agents — Listar agentes disponíveis\n" +
 		"/help — Mostrar esta mensagem\n\n" +
@@ -94,8 +99,20 @@ func (bc *BotController) handleCwdCommand(c telebot.Context) error {
 }
 
 func (bc *BotController) handleResetCommand(c telebot.Context) error {
-	bc.sessions.Clear(c.Chat().ID)
+	chatID := c.Chat().ID
+	bc.sessions.Clear(chatID)
+	bc.tracker.Clear(chatID)
 	return SendText(bc.bot, c.Chat(), "Sessão resetada. Próxima mensagem inicia conversa nova.")
+}
+
+func (bc *BotController) handleUsageCommand(c telebot.Context) error {
+	usage := bc.tracker.Get(c.Chat().ID)
+	if usage.NumTurns == 0 {
+		return SendText(bc.bot, c.Chat(), "Nenhum uso registrado na sessão atual.")
+	}
+	maxTokens := bc.config.MaxSessionTokens
+	msg := fmt.Sprintf("📊 Sessão atual:\n\n%s\nAuto-reset em: %d tokens", usage, maxTokens)
+	return SendText(bc.bot, c.Chat(), msg)
 }
 
 func (bc *BotController) handleCronCommand(c telebot.Context) error {

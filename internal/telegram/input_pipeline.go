@@ -128,9 +128,13 @@ func (bc *BotController) buildBridgeRequest(userText, systemPrompt string, agent
 	if sessionID, active := bc.sessions.GetWithState(chatID); sessionID != "" {
 		if active {
 			req.Options.Continue = true
+			log.Printf("session: chat=%d mode=continue", chatID)
 		} else {
 			req.Options.Resume = sessionID
+			log.Printf("session: chat=%d mode=resume sid=%s", chatID, sessionID[:8])
 		}
+	} else {
+		log.Printf("session: chat=%d mode=new", chatID)
 	}
 
 	// Apply chat-level cwd if no agent overrides it
@@ -207,6 +211,22 @@ func (bc *BotController) processBridgeEventsAsync(chat *telebot.Chat, ch <-chan 
 			if content != "" {
 				assistantText.Reset()
 				assistantText.WriteString(content)
+			}
+
+			// Track token usage and auto-reset if threshold exceeded
+			if ev.CostUSD > 0 || ev.NumTurns > 0 {
+				// Estimate tokens from turns (avg ~3K tokens/turn)
+				estimatedTokens := ev.NumTurns * 3000
+				totalTokens := bc.tracker.Add(chat.ID, estimatedTokens, 0, ev.NumTurns, ev.CostUSD)
+				usage := bc.tracker.Get(chat.ID)
+				log.Printf("session usage: chat=%d %s", chat.ID, usage)
+
+				maxTokens := bc.config.MaxSessionTokens
+				if maxTokens > 0 && totalTokens >= maxTokens {
+					log.Printf("session auto-reset: chat=%d tokens=%d threshold=%d", chat.ID, totalTokens, maxTokens)
+					bc.sessions.Clear(chat.ID)
+					bc.tracker.Clear(chat.ID)
+				}
 			}
 
 			finalText := strings.TrimSpace(assistantText.String())
