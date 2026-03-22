@@ -51,7 +51,6 @@ func (bc *BotController) processInput(c telebot.Context, text string, parts [][]
 	chatID := c.Chat().ID
 	messageID := c.Message().ID
 	go bc.executeAsync(chatID, messageID, req, userText)
-	ReactToMessage(bc.bot, &telebot.Chat{ID: chatID}, messageID, "👀")
 
 	return nil
 }
@@ -153,7 +152,6 @@ func (bc *BotController) executeAsync(chatID int64, messageID int, req bridge.Re
 	ch, err := bc.bridge.Execute(ctx, req)
 	if err != nil {
 		log.Printf("Bridge execute error: %v", err)
-		ReactToMessage(bc.bot, chat, messageID, "❌")
 		_ = SendError(bc.bot, chat, "Falha ao conectar com o processador.")
 		return
 	}
@@ -205,7 +203,6 @@ func (bc *BotController) processBridgeEventsAsync(chat *telebot.Chat, ch <-chan 
 			}
 
 			bc.saveToMemory(userText, finalText)
-			ReactToMessage(bc.bot, chat, messageID, "✅")
 			_ = SendTextReply(bc.bot, chat, finalText, messageID)
 			return
 
@@ -218,7 +215,6 @@ func (bc *BotController) processBridgeEventsAsync(chat *telebot.Chat, ch <-chan 
 				errMsg = "Erro desconhecido no processador."
 			}
 			log.Printf("Bridge error: %s", errMsg)
-			ReactToMessage(bc.bot, chat, messageID, "❌")
 			_ = SendError(bc.bot, chat, errMsg)
 			return
 
@@ -231,10 +227,8 @@ func (bc *BotController) processBridgeEventsAsync(chat *telebot.Chat, ch <-chan 
 	finalText := strings.TrimSpace(assistantText.String())
 	if finalText != "" {
 		bc.saveToMemory(userText, finalText)
-		ReactToMessage(bc.bot, chat, messageID, "✅")
 		_ = SendTextReply(bc.bot, chat, finalText, messageID)
 	} else {
-		ReactToMessage(bc.bot, chat, messageID, "❌")
 		_ = SendError(bc.bot, chat, "O processador encerrou sem resposta.")
 	}
 }
