@@ -25,6 +25,7 @@ type BotController struct {
 	memory           *memory.Store
 	persona          *persona.CanonicalIdentityService
 	stt              stt.Transcriber
+	cronHandler      *CronCommandHandler
 	sessions         *sessionStore
 	personasDir      string
 	bootstrapMu      sync.Mutex
@@ -52,6 +53,7 @@ func NewBotController(
 	mem *memory.Store,
 	p *persona.CanonicalIdentityService,
 	s stt.Transcriber,
+	cronHandler *CronCommandHandler,
 	personasDir string,
 ) (*BotController, error) {
 
@@ -73,6 +75,7 @@ func NewBotController(
 		memory:           mem,
 		persona:          p,
 		stt:              s,
+		cronHandler:      cronHandler,
 		sessions:         newSessionStore(),
 		personasDir:      personasDir,
 		pendingBootstrap: make(map[int64]bootstrapState),

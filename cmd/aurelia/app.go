@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"gopkg.in/telebot.v3"
+
 	"github.com/kocar/aurelia/internal/agents"
 	"github.com/kocar/aurelia/internal/bridge"
 	"github.com/kocar/aurelia/internal/config"
@@ -113,7 +115,11 @@ func bootstrapApp() (*app, error) {
 		return nil, fmt.Errorf("initialize transcriber: %w", err)
 	}
 
-	// 11. Create Telegram BotController
+	// 11. Create Cron Service (used by both Telegram handler and scheduler)
+	cronSvc := cron.NewService(cronStore, nil)
+	cronHandler := telegram.NewCronCommandHandler(cronSvc)
+
+	// 12. Create Telegram BotController
 	bot, err := telegram.NewBotController(
 		cfg,
 		br,
@@ -121,6 +127,7 @@ func bootstrapApp() (*app, error) {
 		memStore,
 		personaSvc,
 		transcriber,
+		cronHandler,
 		personasDir,
 	)
 	if err != nil {
@@ -129,7 +136,7 @@ func bootstrapApp() (*app, error) {
 		return nil, fmt.Errorf("initialize telegram bot: %w", err)
 	}
 
-	// 12. Create Cron Scheduler with BridgeCronRuntime
+	// 13. Create Cron Scheduler with BridgeCronRuntime + Telegram delivery
 	var scheduler *cron.Scheduler
 	if agentReg != nil {
 		cronRuntime := cron.NewBridgeCronRuntime(
@@ -138,7 +145,23 @@ func bootstrapApp() (*app, error) {
 			personaSvc,
 			memStore,
 		)
-		scheduler, err = cron.NewScheduler(cronStore, cronRuntime, nil, cron.SchedulerConfig{
+
+		deliverToTelegram := func(ctx context.Context, job cron.CronJob, output string, execErr error) error {
+			if job.TargetChatID == 0 {
+				return nil
+			}
+			chat := &telebot.Chat{ID: job.TargetChatID}
+			if execErr != nil {
+				return telegram.SendError(bot.GetBot(), chat, execErr.Error())
+			}
+			if output == "" {
+				return nil
+			}
+			return telegram.SendText(bot.GetBot(), chat, output)
+		}
+
+		notifyingRuntime := cron.NewNotifyingRuntime(cronRuntime, deliverToTelegram)
+		scheduler, err = cron.NewScheduler(cronStore, notifyingRuntime, nil, cron.SchedulerConfig{
 			PollInterval: time.Minute,
 		})
 		if err != nil {
@@ -147,7 +170,7 @@ func bootstrapApp() (*app, error) {
 			return nil, fmt.Errorf("initialize cron scheduler: %w", err)
 		}
 
-		// 13. Register scheduled agents from registry
+		// 14. Register scheduled agents from registry
 		registerScheduledAgents(cronStore, agentReg)
 	}
 

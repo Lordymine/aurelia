@@ -1,6 +1,7 @@
 package telegram
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"strings"
@@ -27,6 +28,7 @@ func (bc *BotController) whitelistMiddleware() telebot.MiddlewareFunc {
 func (bc *BotController) registerContentRoutes() {
 	bc.bot.Handle("/cwd", bc.handleCwdCommand)
 	bc.bot.Handle("/reset", bc.handleResetCommand)
+	bc.bot.Handle("/cron", bc.handleCronCommand)
 	bc.bot.Handle(telebot.OnText, bc.handleText)
 	bc.bot.Handle(telebot.OnPhoto, bc.handlePhoto)
 	bc.bot.Handle(telebot.OnDocument, bc.handleDocument)
@@ -50,4 +52,22 @@ func (bc *BotController) handleCwdCommand(c telebot.Context) error {
 func (bc *BotController) handleResetCommand(c telebot.Context) error {
 	bc.sessions.Clear(c.Chat().ID)
 	return SendText(bc.bot, c.Chat(), "Sessão resetada. Próxima mensagem inicia conversa nova.")
+}
+
+func (bc *BotController) handleCronCommand(c telebot.Context) error {
+	if bc.cronHandler == nil {
+		return SendText(bc.bot, c.Chat(), "Cron não está disponível.")
+	}
+	userID := fmt.Sprintf("%d", c.Sender().ID)
+	chatID := c.Chat().ID
+	text := c.Message().Text
+
+	reply, err := bc.cronHandler.HandleText(context.Background(), userID, chatID, text)
+	if err != nil {
+		return SendError(bc.bot, c.Chat(), err.Error())
+	}
+	if reply != "" {
+		return SendText(bc.bot, c.Chat(), reply)
+	}
+	return nil
 }
