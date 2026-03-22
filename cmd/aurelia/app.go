@@ -280,18 +280,24 @@ func setProviderEnv(cfg *config.AppConfig) {
 	}
 }
 
-// findBridgeDir locates the bridge/ directory containing index.ts.
+// findBridgeDir locates the bridge/ directory containing bundle.js or index.ts.
 func findBridgeDir() string {
+	home, _ := os.UserHomeDir()
 	candidates := []string{
-		"bridge",
-		filepath.Join(filepath.Dir(os.Args[0]), "bridge"),
+		"bridge",                                          // relative to cwd (development)
+		filepath.Join(filepath.Dir(os.Args[0]), "bridge"), // next to executable
+		filepath.Join(home, ".aurelia", "bridge"),          // user data dir
 	}
 	for _, c := range candidates {
+		// Check for bundle.js (production) or index.ts (development)
+		if _, err := os.Stat(filepath.Join(c, "bundle.js")); err == nil {
+			return c
+		}
 		if _, err := os.Stat(filepath.Join(c, "index.ts")); err == nil {
 			return c
 		}
 	}
-	return "bridge" // fallback
+	return "bridge"
 }
 
 // createEmbedder builds the embedding provider.
