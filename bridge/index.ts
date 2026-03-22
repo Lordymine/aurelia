@@ -24,6 +24,8 @@ interface RequestOptions {
   permission_mode?: string;
   mcp_servers?: Record<string, MCPServerConfig>;
   allowed_tools?: string[];
+  continue?: boolean;
+  agents?: Record<string, unknown>;
   no_user_settings?: boolean;
   disabled_tools?: string[];
 }
@@ -153,6 +155,10 @@ async function buildSDKOptions(opts: RequestOptions | undefined) {
   if (opts.cwd) sdkOpts.cwd = opts.cwd;
   if (opts.system_prompt) sdkOpts.systemPrompt = opts.system_prompt;
   if (opts.resume) sdkOpts.resume = opts.resume;
+  if (opts.continue) sdkOpts.continue = opts.continue;
+  if (opts.agents && Object.keys(opts.agents).length > 0) {
+    sdkOpts.agents = opts.agents;
+  }
   if (opts.max_turns) sdkOpts.maxTurns = opts.max_turns;
   if (opts.permission_mode) {
     sdkOpts.permissionMode = opts.permission_mode;
