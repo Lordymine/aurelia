@@ -23,10 +23,10 @@ const bridgePackageJSON = `{
 // creates it with package.json and runs npm install. Returns the
 // directory path. bundleJS should be the compiled bridge source.
 func EnsureBridge(targetDir string, bundleJS []byte) (string, error) {
-	bundlePath := filepath.Join(targetDir, "bundle.js")
+	bundlePath := filepath.Join(targetDir, "bundle.ts")
 	nodeModules := filepath.Join(targetDir, "node_modules")
 
-	// Always update bundle.js to match embedded version
+	// Always update bundle.ts to match embedded version
 	needsNpmInstall := false
 	if _, err := os.Stat(nodeModules); os.IsNotExist(err) {
 		needsNpmInstall = true
@@ -49,10 +49,10 @@ func EnsureBridge(targetDir string, bundleJS []byte) (string, error) {
 		return "", fmt.Errorf("create bridge dir: %w", err)
 	}
 
-	// Always write latest bundle.js
+	// Always write latest bundle.ts
 	if !bundleUpToDate {
 		if err := os.WriteFile(bundlePath, bundleJS, 0600); err != nil {
-			return "", fmt.Errorf("write bundle.js: %w", err)
+			return "", fmt.Errorf("write bundle.ts: %w", err)
 		}
 	}
 

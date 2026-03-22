@@ -55,8 +55,9 @@ func New(bridgeDir string, bundlePath string) *Bridge {
 	args := []string{"tsx", "index.ts"}
 	if bundlePath != "" {
 		cmd = "node"
-		// Use just the filename since cmd.Dir is set to bridgeDir
-		args = []string{filepath.Base(bundlePath)}
+		// Use just the filename since cmd.Dir is set to bridgeDir.
+		// --experimental-strip-types allows TypeScript syntax in the bundle.
+		args = []string{"--experimental-strip-types", filepath.Base(bundlePath)}
 	}
 	return &Bridge{
 		bridgeDir: bridgeDir,
