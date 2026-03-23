@@ -1,6 +1,7 @@
 package agents
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"sort"
@@ -410,6 +411,40 @@ Prompt.
 	agent = reg.Route("@MYAGENT hello")
 	if agent == nil {
 		t.Fatal("expected agent to be found with uppercase lookup")
+	}
+}
+
+func TestClassify(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "coder.md"), []byte("---\nname: coder\ndescription: writes code\n---\nYou write code."), 0644)
+	reg, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mockClassify := func(ctx context.Context, system, prompt string) (string, error) {
+		return "coder", nil
+	}
+	agent := reg.Classify(context.Background(), "write me a function", mockClassify)
+	if agent == nil || agent.Name != "coder" {
+		t.Fatalf("expected coder agent, got %v", agent)
+	}
+}
+
+func TestClassifyNone(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "coder.md"), []byte("---\nname: coder\ndescription: writes code\n---\nYou write code."), 0644)
+	reg, err := Load(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mockClassify := func(ctx context.Context, system, prompt string) (string, error) {
+		return "none", nil
+	}
+	agent := reg.Classify(context.Background(), "hello", mockClassify)
+	if agent != nil {
+		t.Fatal("expected nil for 'none' classification")
 	}
 }
 

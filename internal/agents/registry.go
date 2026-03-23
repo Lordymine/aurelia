@@ -2,6 +2,7 @@ package agents
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +11,10 @@ import (
 
 	"gopkg.in/yaml.v3"
 )
+
+// ClassifyFunc sends a text prompt and returns the LLM response.
+// Defined in agents package to avoid importing bridge.
+type ClassifyFunc func(ctx context.Context, systemPrompt, userPrompt string) (string, error)
 
 // Registry holds all loaded agent definitions indexed by name.
 type Registry struct {
@@ -94,6 +99,27 @@ func (r *Registry) Route(message string) *Agent {
 	name := rest
 	if idx := strings.IndexByte(rest, ' '); idx != -1 {
 		name = rest[:idx]
+	}
+	return r.Get(name)
+}
+
+// Classify uses LLM classification to route a message to the best agent.
+// Returns nil if no agents loaded, classification fails, or result is "none".
+func (r *Registry) Classify(ctx context.Context, text string, classify ClassifyFunc) *Agent {
+	if len(r.agents) == 0 {
+		return nil
+	}
+	prompt := r.ClassifyPrompt(text)
+	if prompt == "" {
+		return nil
+	}
+	result, err := classify(ctx, "You are a message classifier. Reply with only the agent name or 'none'.", prompt)
+	if err != nil {
+		return nil
+	}
+	name := strings.TrimSpace(strings.ToLower(result))
+	if name == "none" || name == "" {
+		return nil
 	}
 	return r.Get(name)
 }

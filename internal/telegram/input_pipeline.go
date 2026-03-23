@@ -53,36 +53,40 @@ func (bc *BotController) processInput(c telebot.Context, text string) error {
 	return nil
 }
 
+const classifyTimeout = 15 * time.Second
+
 // routeAgent resolves which agent should handle the message, first by @name
 // prefix, then by LLM classification if agents are configured.
 func (bc *BotController) routeAgent(text string) *agents.Agent {
 	agent := bc.agents.Route(text)
-
-	if agent == nil && bc.agents != nil && len(bc.agents.Agents()) > 0 {
-		classifyPrompt := bc.agents.ClassifyPrompt(text)
-		if classifyPrompt != "" {
-			classifyCtx, classifyCancel := context.WithTimeout(context.Background(), 15*time.Second)
-			result, err := bc.bridge.ExecuteSync(classifyCtx, bridge.Request{
-				Command: "query",
-				Prompt:  classifyPrompt,
-				Options: bridge.RequestOptions{
-					Model:          bc.config.DefaultModel,
-					SystemPrompt:   "You are a message classifier. Reply with only the agent name or 'none'.",
-					MaxTurns:       1,
-					PermissionMode: "bypassPermissions",
-				},
-			})
-			classifyCancel()
-			if err == nil && result.Type == "result" {
-				name := strings.TrimSpace(strings.ToLower(result.Content))
-				if name != "none" && name != "" {
-					agent = bc.agents.Get(name)
-				}
-			}
-		}
+	if agent != nil {
+		return agent
 	}
+	if bc.agents == nil {
+		return nil
+	}
+	classifyCtx, classifyCancel := context.WithTimeout(context.Background(), classifyTimeout)
+	defer classifyCancel()
+	return bc.agents.Classify(classifyCtx, text, bc.classifyFunc())
+}
 
-	return agent
+func (bc *BotController) classifyFunc() agents.ClassifyFunc {
+	return func(ctx context.Context, system, prompt string) (string, error) {
+		result, err := bc.bridge.ExecuteSync(ctx, bridge.Request{
+			Command: "query",
+			Prompt:  prompt,
+			Options: bridge.RequestOptions{
+				Model:          bc.config.DefaultModel,
+				SystemPrompt:   system,
+				MaxTurns:       1,
+				PermissionMode: "bypassPermissions",
+			},
+		})
+		if err != nil {
+			return "", err
+		}
+		return result.Content, nil
+	}
 }
 
 // buildBridgeRequest assembles the bridge.Request with agent overrides, session
