@@ -353,6 +353,21 @@ func TestBridge_LongLived_MultipleRequests(t *testing.T) {
 	}
 }
 
+func TestStopBeforeStart(t *testing.T) {
+	b := New("/nonexistent", "")
+	done := make(chan struct{})
+	go func() {
+		b.Stop()
+		close(done)
+	}()
+	select {
+	case <-done:
+		// OK — Stop returned
+	case <-time.After(2 * time.Second):
+		t.Fatal("Stop() blocked on bridge that was never started")
+	}
+}
+
 func TestBridge_Stop_And_Restart(t *testing.T) {
 	dir := t.TempDir()
 

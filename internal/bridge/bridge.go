@@ -59,11 +59,14 @@ func New(bridgeDir string, bundlePath string) *Bridge {
 		// --experimental-strip-types allows TypeScript syntax in the bundle.
 		args = []string{"--experimental-strip-types", filepath.Base(bundlePath)}
 	}
+	done := make(chan struct{})
+	close(done) // closed = no process running, Stop() won't block
 	return &Bridge{
 		bridgeDir: bridgeDir,
 		command:   cmd,
 		args:      args,
 		pending:   make(map[string]chan Event),
+		done:      done,
 	}
 }
 
