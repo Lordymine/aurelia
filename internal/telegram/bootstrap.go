@@ -38,9 +38,6 @@ func (bc *BotController) handleBootstrapChoice(choice string) func(telebot.Conte
 		}
 
 		bc.setPendingBootstrap(c.Sender().ID, bootstrapState{Choice: choice})
-		if err := bc.seedBootstrapIdentity(c, preset); err != nil {
-			log.Printf("Bootstrap fact seed warning: %v\n", err)
-		}
 		return SendContextText(c, bootstrapProfileMessage)
 	}
 }

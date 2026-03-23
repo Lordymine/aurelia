@@ -13,11 +13,7 @@ import (
 	"github.com/kocar/aurelia/internal/bridge"
 )
 
-const memorySaveTruncateLen = 500
-
-func (bc *BotController) processInput(c telebot.Context, text string, parts [][]byte, requiresAudio bool) error {
-	_ = parts
-
+func (bc *BotController) processInput(c telebot.Context, text string) error {
 	if state, ok := bc.popPendingBootstrap(c.Sender().ID); ok {
 		return bc.completeBootstrapProfile(c, state, text)
 	}
@@ -234,7 +230,6 @@ func (bc *BotController) processBridgeEventsAsync(chat *telebot.Chat, ch <-chan 
 				finalText = "(sem resposta)"
 			}
 
-			bc.saveToMemory(userText, finalText)
 			_ = SendTextReply(bc.bot, chat, finalText, messageID)
 			return
 
@@ -258,7 +253,6 @@ func (bc *BotController) processBridgeEventsAsync(chat *telebot.Chat, ch <-chan 
 	// Channel closed without terminal event
 	finalText := strings.TrimSpace(assistantText.String())
 	if finalText != "" {
-		bc.saveToMemory(userText, finalText)
 		_ = SendTextReply(bc.bot, chat, finalText, messageID)
 	} else {
 		_ = SendError(bc.bot, chat, "O processador encerrou sem resposta.")
@@ -268,6 +262,7 @@ func (bc *BotController) processBridgeEventsAsync(chat *telebot.Chat, ch <-chan 
 // buildSystemPrompt assembles the system prompt from persona, agent, cron/telegram instructions, and memory.
 func (bc *BotController) buildSystemPrompt(userText string, agent *agents.Agent, chatID int64, messageID int) (string, error) {
 	var sections []string
+	var personaLen, agentLen, cronLen, telegramLen int
 
 	// Persona prompt
 	if bc.persona != nil {
@@ -275,34 +270,33 @@ func (bc *BotController) buildSystemPrompt(userText string, agent *agents.Agent,
 		if err != nil {
 			log.Printf("Persona prompt error (non-fatal): %v", err)
 		} else if personaPrompt != "" {
+			personaLen = len(personaPrompt)
 			sections = append(sections, personaPrompt)
 		}
 	}
 
 	// Agent-specific prompt
 	if agent != nil && agent.Prompt != "" {
-		sections = append(sections, "# Agent Instructions\n\n"+agent.Prompt)
+		agentSection := "# Agent Instructions\n\n" + agent.Prompt
+		agentLen = len(agentSection)
+		sections = append(sections, agentSection)
 	}
 
 	// Cron scheduling instructions
-	sections = append(sections, bc.buildCronInstructions(chatID))
+	cronSection := bc.buildCronInstructions(chatID)
+	cronLen = len(cronSection)
+	sections = append(sections, cronSection)
 
 	// Telegram interaction instructions
-	sections = append(sections, bc.buildTelegramInstructions(chatID, messageID))
+	telegramSection := bc.buildTelegramInstructions(chatID, messageID)
+	telegramLen = len(telegramSection)
+	sections = append(sections, telegramSection)
 
-	// Memory injection
-	if bc.memory != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		memoryBlock, err := bc.memory.Inject(ctx, userText, bc.config.MemoryWindowSize)
-		if err != nil {
-			log.Printf("Memory injection error (non-fatal): %v", err)
-		} else if memoryBlock != "" {
-			sections = append(sections, memoryBlock)
-		}
-	}
+	result := strings.Join(sections, "\n\n")
+	log.Printf("system prompt breakdown: persona=%d agent=%d cron=%d telegram=%d total=%d chars",
+		personaLen, agentLen, cronLen, telegramLen, len(result))
 
-	return strings.Join(sections, "\n\n"), nil
+	return result, nil
 }
 
 // buildTelegramInstructions returns instructions for interacting with the Telegram chat.
@@ -374,24 +368,3 @@ CRITICAL RULES FOR CRON PROMPTS:
 	)
 }
 
-// saveToMemory stores the conversation exchange in semantic memory.
-func (bc *BotController) saveToMemory(userText, response string) {
-	if bc.memory == nil {
-		return
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	content := fmt.Sprintf("User: %s\nAssistant: %s", userText, truncate(response, memorySaveTruncateLen))
-	if err := bc.memory.Save(ctx, content, "conversation", "telegram"); err != nil {
-		log.Printf("Memory save error (non-fatal): %v", err)
-	}
-}
-
-func truncate(s string, maxLen int) string {
-	runes := []rune(s)
-	if len(runes) <= maxLen {
-		return s
-	}
-	return string(runes[:maxLen]) + "..."
-}

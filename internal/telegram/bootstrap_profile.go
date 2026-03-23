@@ -56,8 +56,6 @@ func bootstrapFallbackName(user *telebot.User) string {
 }
 
 func (bc *BotController) completeBootstrapProfile(c telebot.Context, state bootstrapState, text string) error {
-	_ = state
-
 	userTemplate := buildUserTemplateFromProfile(text, bootstrapFallbackName(c.Sender()))
 	if err := os.WriteFile(filepath.Join(bc.personasDir, "USER.md"), []byte(userTemplate), 0o644); err != nil {
 		log.Printf("Bootstrap user profile write error: %v\n", err)
@@ -68,9 +66,3 @@ func (bc *BotController) completeBootstrapProfile(c telebot.Context, state boots
 	return SendContextText(c, bootstrapSuccessMessage)
 }
 
-func (bc *BotController) seedBootstrapIdentity(c telebot.Context, preset bootstrapPreset) error {
-	// TODO: seed bootstrap identity facts via bridge when memory is wired
-	_ = c
-	_ = preset
-	return nil
-}

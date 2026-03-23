@@ -15,7 +15,7 @@ import (
 )
 
 func (bc *BotController) handleText(c telebot.Context) error {
-	return bc.processInput(c, c.Text(), nil, false)
+	return bc.processInput(c, c.Text())
 }
 
 func (bc *BotController) handlePhoto(c telebot.Context) error {
@@ -82,7 +82,7 @@ func (bc *BotController) processPhotoInput(c telebot.Context, caption string, ph
 		text += fmt.Sprintf("\n\nImagem: %s", path)
 	}
 
-	return bc.processInput(c, text, nil, false)
+	return bc.processInput(c, text)
 }
 
 func (bc *BotController) handleDocument(c telebot.Context) error {
@@ -111,7 +111,7 @@ func (bc *BotController) handleDocument(c telebot.Context) error {
 	defer func() { _ = os.Remove(filePath) }()
 
 	finalInput := buildDocumentInput(c.Message().Caption, doc.FileName, doc.MIME, filePath)
-	return bc.processInput(c, finalInput, nil, false)
+	return bc.processInput(c, finalInput)
 }
 
 func (bc *BotController) handleImageDocument(c telebot.Context, doc *telebot.Document) error {
@@ -126,11 +126,11 @@ func (bc *BotController) handleImageDocument(c telebot.Context, doc *telebot.Doc
 	filePath, err := bc.downloadTelegramFile(&doc.File, doc.FileID+"_"+doc.FileName)
 	if err != nil {
 		log.Printf("Failed to download image document: %v", err)
-		return bc.processInput(c, text, nil, false)
+		return bc.processInput(c, text)
 	}
 
 	text += fmt.Sprintf("\n\nImagem: %s", filePath)
-	return bc.processInput(c, text, nil, false)
+	return bc.processInput(c, text)
 }
 
 func (bc *BotController) handleVoice(c telebot.Context) error {
@@ -157,7 +157,7 @@ func (bc *BotController) handleVoice(c telebot.Context) error {
 		}
 		return SendContextText(c, audioProcessingFailureMessage)
 	}
-	return bc.processInput(c, transcribedText, nil, true)
+	return bc.processInput(c, transcribedText)
 }
 
 func isSupportedDocument(filename, mimeType string) bool {
