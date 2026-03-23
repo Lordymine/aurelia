@@ -16,7 +16,7 @@ func startChatActionLoop(sender actionSender, recipient telebot.Recipient, actio
 		return func() {}
 	}
 	if interval <= 0 {
-		interval = 4 * time.Second
+		interval = typingIndicatorInterval
 	}
 
 	done := make(chan struct{})

@@ -13,6 +13,8 @@ import (
 	"sync/atomic"
 )
 
+const eventChannelBuffer = 16
+
 // safeClose closes a channel, recovering from panic if already closed.
 func safeClose(ch chan Event) {
 	defer func() { recover() }()
@@ -240,7 +242,7 @@ func (b *Bridge) Execute(ctx context.Context, req Request) (<-chan Event, error)
 		return nil, fmt.Errorf("bridge: marshal request: %w", err)
 	}
 
-	ch := make(chan Event, 16)
+	ch := make(chan Event, eventChannelBuffer)
 
 	b.pendingMu.Lock()
 	b.pending[req.RequestID] = ch
@@ -268,7 +270,7 @@ func (b *Bridge) Execute(ctx context.Context, req Request) (<-chan Event, error)
 	}
 
 	// Wrap channel with context cancellation.
-	out := make(chan Event, 16)
+	out := make(chan Event, eventChannelBuffer)
 	go func() {
 		defer close(out)
 		for {
