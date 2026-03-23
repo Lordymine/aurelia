@@ -71,7 +71,10 @@ func bootstrapApp() (*app, error) {
 
 	cronSvc := cron.NewService(cronStore, nil)
 	cronHandler := telegram.NewCronCommandHandler(cronSvc)
-	exePath, _ := os.Executable()
+	exePath, err := os.Executable()
+	if err != nil {
+		log.Printf("Warning: failed to resolve executable path: %v", err)
+	}
 	sessions := session.NewStore()
 	tracker := session.NewTracker()
 

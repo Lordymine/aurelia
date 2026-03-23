@@ -62,7 +62,6 @@ func (bc *BotController) completeBootstrapProfile(c telebot.Context, state boots
 		return SendContextText(c, bootstrapFailureMessage)
 	}
 
-	// TODO: seed identity facts via bridge when memory is wired
 	return SendContextText(c, bootstrapSuccessMessage)
 }
 

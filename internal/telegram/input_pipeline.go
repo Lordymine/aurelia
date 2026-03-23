@@ -329,7 +329,7 @@ You can interact with the chat using the Aurelia CLI via Bash:
 React to a message with emoji:
 `+"`%s telegram react %d %d <emoji>`"+`
 
-Available emojis: 👍 👎 ❤️ 🔥 👀 🎉 😂 🤔 💯 🎯 ✅ ❌
+Available emojis: 👍 👎 ❤️ 🔥 🎉 🤩 😱 😁 😢 💩 🤮 🥰 🤯 🤔 🤬 👏 🙏 👌 😍 💯 ⚡️ 🏆
 
 Use reactions naturally and contextually — react when it adds to the conversation, not on every message.
 DO NOT use the Telegram MCP plugin for reactions or replies — use the Aurelia CLI above.`,

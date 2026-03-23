@@ -57,5 +57,10 @@ func (s *SQLiteCronStore) initialize() error {
 		return fmt.Errorf("create due jobs index: %w", err)
 	}
 
+	_, err = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_cron_jobs_chat ON cron_jobs(target_chat_id)`)
+	if err != nil {
+		return fmt.Errorf("create chat jobs index: %w", err)
+	}
+
 	return nil
 }
