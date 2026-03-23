@@ -128,6 +128,10 @@ func (s *Scheduler) runSingleJob(ctx context.Context, now time.Time, job CronJob
 			return err
 		}
 		job.NextRunAt = &nextRunAt
+	} else {
+		log.Printf("cron.scheduler: unknown schedule_type %q for job %s, deactivating", job.ScheduleType, job.ID)
+		job.Active = false
+		job.NextRunAt = nil
 	}
 
 	if err := s.store.WithTx(ctx, func(tx *sql.Tx) error {
