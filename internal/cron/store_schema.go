@@ -51,5 +51,11 @@ func (s *SQLiteCronStore) initialize() error {
 		}
 	}
 
+	// Index for ListDueJobs query
+	_, err = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_cron_jobs_due ON cron_jobs(active, next_run_at)`)
+	if err != nil {
+		return fmt.Errorf("create due jobs index: %w", err)
+	}
+
 	return nil
 }

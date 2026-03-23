@@ -283,3 +283,22 @@ func TestSQLiteCronStore_RecordExecutionAndListExecutionsByJob(t *testing.T) {
 		t.Fatalf("unexpected execution summary: %q", executions[0].OutputSummary)
 	}
 }
+
+func TestDueJobsIndex(t *testing.T) {
+	store, err := NewSQLiteCronStore(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	var count int
+	err = store.db.QueryRow(
+		"SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_cron_jobs_due'",
+	).Scan(&count)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatal("expected idx_cron_jobs_due index to exist")
+	}
+}
