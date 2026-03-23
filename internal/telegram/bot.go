@@ -11,8 +11,8 @@ import (
 	"github.com/kocar/aurelia/internal/agents"
 	"github.com/kocar/aurelia/internal/bridge"
 	"github.com/kocar/aurelia/internal/config"
-	"github.com/kocar/aurelia/internal/memory"
 	"github.com/kocar/aurelia/internal/persona"
+	"github.com/kocar/aurelia/internal/session"
 	"github.com/kocar/aurelia/pkg/stt"
 )
 
@@ -22,12 +22,11 @@ type BotController struct {
 	config           *config.AppConfig
 	bridge           *bridge.Bridge
 	agents           *agents.Registry
-	memory           *memory.Store
 	persona          *persona.CanonicalIdentityService
 	stt              stt.Transcriber
 	cronHandler      *CronCommandHandler
-	sessions         *sessionStore
-	tracker          *sessionTracker
+	sessions         *session.Store
+	tracker          *session.Tracker
 	personasDir      string
 	exePath          string // path to aurelia binary for CLI instructions in system prompt
 	bootstrapMu      sync.Mutex
@@ -52,12 +51,13 @@ func NewBotController(
 	cfg *config.AppConfig,
 	br *bridge.Bridge,
 	ag *agents.Registry,
-	mem *memory.Store,
 	p *persona.CanonicalIdentityService,
 	s stt.Transcriber,
 	cronHandler *CronCommandHandler,
 	personasDir string,
 	exePath string,
+	sessions *session.Store,
+	tracker *session.Tracker,
 ) (*BotController, error) {
 
 	pref := telebot.Settings{
@@ -75,12 +75,11 @@ func NewBotController(
 		config:           cfg,
 		bridge:           br,
 		agents:           ag,
-		memory:           mem,
 		persona:          p,
 		stt:              s,
 		cronHandler:      cronHandler,
-		sessions:         newSessionStore(),
-		tracker:          newSessionTracker(),
+		sessions:         sessions,
+		tracker:          tracker,
 		personasDir:      personasDir,
 		exePath:          exePath,
 		pendingBootstrap: make(map[int64]bootstrapState),

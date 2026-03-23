@@ -14,22 +14,21 @@ import (
 	"github.com/kocar/aurelia/internal/bridge"
 	"github.com/kocar/aurelia/internal/config"
 	"github.com/kocar/aurelia/internal/cron"
-	"github.com/kocar/aurelia/internal/memory"
 	"github.com/kocar/aurelia/internal/persona"
 	"github.com/kocar/aurelia/internal/runtime"
+	"github.com/kocar/aurelia/internal/session"
 	"github.com/kocar/aurelia/internal/telegram"
 	"github.com/kocar/aurelia/pkg/stt"
 )
 
 type app struct {
-	resolver  *runtime.PathResolver
-	bridge    *bridge.Bridge
-	memory    *memory.Store
-	agents    *agents.Registry
-	cronStore *cron.SQLiteCronStore
-	bot       *telegram.BotController
-	scheduler *cron.Scheduler
-	cronCtx   context.Context
+	resolver   *runtime.PathResolver
+	bridge     *bridge.Bridge
+	agents     *agents.Registry
+	cronStore  *cron.SQLiteCronStore
+	bot        *telegram.BotController
+	scheduler  *cron.Scheduler
+	cronCtx    context.Context
 	cronCancel context.CancelFunc
 }
 
@@ -69,23 +68,14 @@ func bootstrapApp() (*app, error) {
 	}
 	br := bridge.New(bridgeDir, bundlePath)
 
-	// 5. Create Embedder
-	embedder := createEmbedder()
-
-	// 6. Create Memory Store
-	memStore, err := memory.NewStore(resolver.DBPath("memory.db"), embedder)
-	if err != nil {
-		return nil, fmt.Errorf("initialize memory store: %w", err)
-	}
-
-	// 7. Load Agent Registry
+	// 5. Load Agent Registry
 	agentReg, err := agents.Load(resolver.Agents())
 	if err != nil {
 		log.Printf("Warning: failed to load agents registry: %v (continuing without agents)", err)
 		agentReg = nil
 	}
 
-	// 8. Build Persona service
+	// 6. Build Persona service
 	personasDir := resolver.MemoryPersonas()
 	memoryDir := resolver.Memory()
 	ownerPlaybookPath := filepath.Join(memoryDir, "OWNER_PLAYBOOK.md")
@@ -113,42 +103,44 @@ func bootstrapApp() (*app, error) {
 		projectPlaybookPath,
 	)
 
-	// 9. Create Cron Store
+	// 7. Create Cron Store
 	cronStore, err := cron.NewSQLiteCronStore(resolver.DBPath("cron.db"))
 	if err != nil {
-		_ = memStore.Close()
 		return nil, fmt.Errorf("initialize cron store: %w", err)
 	}
 
-	// 10. Create STT transcriber
+	// 8. Create STT transcriber
 	transcriber, err := buildTranscriber(cfg)
 	if err != nil {
-		_ = memStore.Close()
 		_ = cronStore.Close()
 		return nil, fmt.Errorf("initialize transcriber: %w", err)
 	}
 
-	// 11. Create Cron Service (used by both Telegram handler and scheduler)
+	// 9. Create Cron Service (used by both Telegram handler and scheduler)
 	cronSvc := cron.NewService(cronStore, nil)
 	cronHandler := telegram.NewCronCommandHandler(cronSvc)
 
-	// 12. Resolve aurelia binary path for cron CLI instructions
+	// 10. Resolve aurelia binary path for cron CLI instructions
 	exePath, _ := os.Executable()
 
-	// 13. Create Telegram BotController
+	// 11. Create session Store and Tracker
+	sessions := session.NewStore()
+	tracker := session.NewTracker()
+
+	// 12. Create Telegram BotController
 	bot, err := telegram.NewBotController(
 		cfg,
 		br,
 		agentReg,
-		memStore,
 		personaSvc,
 		transcriber,
 		cronHandler,
 		personasDir,
 		exePath,
+		sessions,
+		tracker,
 	)
 	if err != nil {
-		_ = memStore.Close()
 		_ = cronStore.Close()
 		return nil, fmt.Errorf("initialize telegram bot: %w", err)
 	}
@@ -160,7 +152,6 @@ func bootstrapApp() (*app, error) {
 			&cron.BridgeAdapter{B: br},
 			agentReg,
 			personaSvc,
-			memStore,
 		)
 
 		deliverToTelegram := func(ctx context.Context, job cron.CronJob, result *cron.ExecutionResult, execErr error) error {
@@ -189,7 +180,6 @@ func bootstrapApp() (*app, error) {
 			PollInterval: 15 * time.Second,
 		})
 		if err != nil {
-			_ = memStore.Close()
 			_ = cronStore.Close()
 			return nil, fmt.Errorf("initialize cron scheduler: %w", err)
 		}
@@ -203,7 +193,6 @@ func bootstrapApp() (*app, error) {
 	return &app{
 		resolver:   resolver,
 		bridge:     br,
-		memory:     memStore,
 		agents:     agentReg,
 		cronStore:  cronStore,
 		bot:        bot,
@@ -237,11 +226,6 @@ func (a *app) shutdown(ctx context.Context) {
 func (a *app) close() {
 	if a.bridge != nil {
 		a.bridge.Stop()
-	}
-	if a.memory != nil {
-		if err := a.memory.Close(); err != nil {
-			log.Printf("Warning: failed to close memory store: %v", err)
-		}
 	}
 	if a.cronStore != nil {
 		if err := a.cronStore.Close(); err != nil {
@@ -310,25 +294,6 @@ func findBridgeDir() string {
 		}
 	}
 	return "" // not found — triggers auto-setup
-}
-
-// createEmbedder builds the embedding provider.
-// Priority: local ONNX model (all-MiniLM-L6-v2) → word-hash fallback.
-func createEmbedder() memory.Embedder {
-	home, _ := os.UserHomeDir()
-	modelDir := filepath.Join(home, ".aurelia", "models", "all-MiniLM-L6-v2")
-	if _, err := os.Stat(filepath.Join(modelDir, "model.onnx")); err == nil {
-		log.Println("Using local sentence embeddings (all-MiniLM-L6-v2)")
-		embedder, err := memory.NewHugotEmbedder(modelDir)
-		if err != nil {
-			log.Printf("Failed to load local embedder: %v — falling back to word-hash", err)
-			return memory.NewMockEmbedder(256)
-		}
-		return embedder
-	}
-	log.Println("No local embedding model found — using word-hash fallback")
-	log.Println("For semantic search, download the model to ~/.aurelia/models/all-MiniLM-L6-v2/")
-	return memory.NewMockEmbedder(256)
 }
 
 func buildTranscriber(cfg *config.AppConfig) (stt.Transcriber, error) {
