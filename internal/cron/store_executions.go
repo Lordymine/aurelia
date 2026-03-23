@@ -6,6 +6,18 @@ import (
 	"fmt"
 )
 
+// RecordExecutionTx inserts a cron execution record within an existing transaction.
+func (s *SQLiteCronStore) RecordExecutionTx(ctx context.Context, tx *sql.Tx, exec CronExecution) error {
+	_, err := tx.ExecContext(ctx, `
+		INSERT INTO cron_executions (id, job_id, started_at, finished_at, status, output_summary, error_message, session_id, cost_usd, tokens_used)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, exec.ID, exec.JobID, exec.StartedAt, exec.FinishedAt, exec.Status, exec.OutputSummary, exec.ErrorMessage, exec.SessionID, exec.CostUSD, exec.TokensUsed)
+	if err != nil {
+		return fmt.Errorf("insert cron execution: %w", err)
+	}
+	return nil
+}
+
 func (s *SQLiteCronStore) RecordExecution(ctx context.Context, exec CronExecution) error {
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO cron_executions (id, job_id, started_at, finished_at, status, output_summary, error_message, session_id, cost_usd, tokens_used)

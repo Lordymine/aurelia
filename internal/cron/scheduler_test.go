@@ -2,6 +2,7 @@ package cron
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"testing"
@@ -75,6 +76,18 @@ func (f *fakeCronStore) RecordExecution(ctx context.Context, exec CronExecution)
 	}
 	f.executions = append(f.executions, exec)
 	return nil
+}
+
+func (f *fakeCronStore) RecordExecutionTx(ctx context.Context, _ *sql.Tx, exec CronExecution) error {
+	return f.RecordExecution(ctx, exec)
+}
+
+func (f *fakeCronStore) UpdateJobTx(ctx context.Context, _ *sql.Tx, job CronJob) error {
+	return f.UpdateJob(ctx, job)
+}
+
+func (f *fakeCronStore) WithTx(ctx context.Context, fn func(tx *sql.Tx) error) error {
+	return fn(nil)
 }
 
 func (f *fakeCronStore) ResolveJobID(ctx context.Context, prefix string) (string, error) {

@@ -2,6 +2,8 @@ package cron
 
 import (
 	"context"
+	"database/sql"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -300,5 +302,29 @@ func TestDueJobsIndex(t *testing.T) {
 	}
 	if count != 1 {
 		t.Fatal("expected idx_cron_jobs_due index to exist")
+	}
+}
+
+func TestWithTx(t *testing.T) {
+	store, err := NewSQLiteCronStore(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	// Verify WithTx commits on success
+	err = store.WithTx(context.Background(), func(tx *sql.Tx) error {
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("WithTx failed: %v", err)
+	}
+
+	// Verify WithTx rolls back on error
+	err = store.WithTx(context.Background(), func(tx *sql.Tx) error {
+		return fmt.Errorf("intentional error")
+	})
+	if err == nil {
+		t.Fatal("expected error from WithTx")
 	}
 }

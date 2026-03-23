@@ -2,6 +2,7 @@ package cron
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log"
 	"strings"
@@ -129,10 +130,12 @@ func (s *Scheduler) runSingleJob(ctx context.Context, now time.Time, job CronJob
 		job.NextRunAt = &nextRunAt
 	}
 
-	if err := s.store.RecordExecution(ctx, exec); err != nil {
-		return err
-	}
-	if err := s.store.UpdateJob(ctx, job); err != nil {
+	if err := s.store.WithTx(ctx, func(tx *sql.Tx) error {
+		if err := s.store.RecordExecutionTx(ctx, tx, exec); err != nil {
+			return err
+		}
+		return s.store.UpdateJobTx(ctx, tx, job)
+	}); err != nil {
 		return err
 	}
 	return nil

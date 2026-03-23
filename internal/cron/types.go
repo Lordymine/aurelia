@@ -2,6 +2,7 @@ package cron
 
 import (
 	"context"
+	"database/sql"
 	"time"
 
 	"github.com/kocar/aurelia/internal/bridge"
@@ -58,6 +59,9 @@ type Store interface {
 	ListJobsByChat(ctx context.Context, chatID int64) ([]CronJob, error)
 	ListDueJobs(ctx context.Context, now time.Time, limit int) ([]CronJob, error)
 	RecordExecution(ctx context.Context, exec CronExecution) error
+	RecordExecutionTx(ctx context.Context, tx *sql.Tx, exec CronExecution) error
+	UpdateJobTx(ctx context.Context, tx *sql.Tx, job CronJob) error
+	WithTx(ctx context.Context, fn func(tx *sql.Tx) error) error
 	ListExecutionsByJob(ctx context.Context, jobID string) ([]CronExecution, error)
 }
 
