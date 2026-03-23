@@ -6,14 +6,13 @@
 
 **An autonomous agent operating system in Go.**
 
-Telegram-native. Claude Code-powered. Semantic memory. Built to stay light.
+Telegram-native. Claude Code-powered. Built to stay light.
 
 One persistent daemon, many projects, many agents.
 
 [![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go&logoColor=white)](https://go.dev/)
 [![Runtime](https://img.shields.io/badge/Runtime-Local--First-0F172A)](#runtime-model)
 [![Architecture](https://img.shields.io/badge/Architecture-Modular_Monolith-1F2937)](docs/ARCHITECTURE.md)
-[![Memory](https://img.shields.io/badge/Memory-Semantic-0E7490)](#semantic-memory)
 [![Storage](https://img.shields.io/badge/Storage-SQLite-003B57?logo=sqlite&logoColor=white)](https://sqlite.org/)
 [![Telegram](https://img.shields.io/badge/Interface-Telegram-26A5E4?logo=telegram)](https://core.telegram.org/bots/api)
 [![Bridge](https://img.shields.io/badge/Brain-Claude_Code_SDK-6E56CF)](https://platform.claude.com/docs/en/agent-sdk)
@@ -29,7 +28,7 @@ It is built around a practical execution model:
 - Go daemon (24/7, lightweight)
 - TypeScript Bridge wrapping the Claude Agent SDK
 - Claude Code CLI as the brain (tools, MCPs, skills, subagents)
-- SQLite semantic memory with local ONNX embeddings
+- Session management with token tracking and auto-reset
 - Configurable agents in markdown
 - Persistent cron scheduler with Telegram delivery
 - Multi-provider: Anthropic, Kimi, OpenRouter, Z.ai, Alibaba
@@ -43,8 +42,7 @@ The goal is to orchestrate it — adding persistence, scheduling, multi-project 
 - **Autonomous coding** — reads, writes, edits files, runs commands, searches code
 - **Multi-project** — work on different projects simultaneously with isolated contexts
 - **Async execution** — messages process in parallel, responses arrive when ready
-- **Session continuity** — conversation context persists across messages via session resume
-- **Semantic memory** — local ONNX embeddings (all-MiniLM-L6-v2) for context retrieval
+- **Session continuity** — conversation context persists across messages via session resume with auto-reset on token threshold
 - **Smart routing** — LLM-based classification routes messages to the right agent
 - **Persistent scheduling** — create cron jobs via natural conversation, results delivered to Telegram
 - **Tool progress** — see what Claude Code is doing in real-time (reading files, running commands...)
@@ -72,7 +70,7 @@ flowchart LR
     R --> B[Bridge TS]
     B --> SDK[Claude Code SDK]
     SDK --> TOOLS[Tools + MCPs + Skills]
-    P --> MEM[Semantic Memory]
+    P --> SESS[Session Manager]
     P --> CRON[Cron Scheduler]
     B --> RES[Response]
     RES --> T
@@ -84,22 +82,21 @@ flowchart LR
 1. Message arrives on Telegram
 2. Pipeline extracts text/photo/voice/document
 3. Agent router classifies → specialist agent or general
-4. System prompt assembled: persona + agent + cron instructions + memory context
+4. System prompt assembled: persona + agent + cron instructions
 5. Request sent to Bridge (long-lived TypeScript process)
 6. Bridge calls Claude Code SDK → Claude Code CLI executes
 7. Events streamed back: tool_use → progress, assistant → text, result → response
 8. Response delivered to Telegram (reply-to original message)
-9. Conversation saved to semantic memory
+9. Session token usage tracked, auto-reset if threshold exceeded
 ```
 
 ### Cron Flow
 
 ```
 1. Scheduler polls every 15 seconds
-2. Due job found → load agent config + persona + memory
+2. Due job found → load agent config + persona
 3. Execute via Bridge (Telegram plugin blocked to prevent wrong bot)
-4. Result delivered to Telegram via Aurelia's own delivery function
-5. Saved to memory
+4. Result delivered to Telegram via TelegramDelivery
 ```
 
 ## Architecture
@@ -107,12 +104,12 @@ flowchart LR
 ```text
 cmd/aurelia/              CLI entry point, onboarding, cron CLI, telegram CLI
 internal/bridge/          Go ↔ Bridge client (long-lived, multiplexed, bundle embedded via go:embed)
-internal/telegram/        Telegram I/O, async pipeline, sessions, progress, reactions
-internal/memory/          Semantic memory (SQLite + local ONNX embeddings)
-internal/agents/          Agent registry (markdown definitions)
+internal/telegram/        Telegram I/O, async pipeline, progress, reactions
+internal/session/         Session store and token tracking with auto-reset
+internal/agents/          Agent registry (markdown definitions, LLM classification)
 internal/persona/         Persona loader (IDENTITY / SOUL / USER)
 internal/cron/            Persistent cron scheduler with Telegram delivery
-internal/config/          App configuration (providers, Telegram, embedding)
+internal/config/          App configuration (providers, Telegram, sessions)
 internal/runtime/         Path resolver + instance bootstrap
 pkg/stt/                  Speech-to-text (Groq Whisper)
 bridge/                   TypeScript Bridge source (compiled to bundle.js via esbuild, embedded in binary)
@@ -136,16 +133,6 @@ The Bridge is a **long-lived** TypeScript process that wraps `@anthropic-ai/clau
 ```
 
 Multiple requests run concurrently — each with its own `request_id`.
-
-### Semantic Memory
-
-SQLite with local ONNX embeddings (all-MiniLM-L6-v2, 384 dimensions). No external API needed.
-
-- **Save** — generates embedding, stores content + vector as BLOB
-- **Search** — cosine similarity against all stored embeddings, returns top N
-- **Inject** — formats relevant memories as markdown block for system prompt
-
-Falls back to word-hash embeddings if the ONNX model is not available.
 
 ### Agents
 
@@ -249,20 +236,6 @@ go install github.com/air-verse/air@latest
 air
 ```
 
-### Local Embeddings (Optional)
-
-For semantic memory with real embeddings instead of word-hash fallback:
-
-```bash
-mkdir -p ~/.aurelia/models/all-MiniLM-L6-v2
-cd ~/.aurelia/models/all-MiniLM-L6-v2
-curl -L -o model.onnx "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/onnx/model.onnx"
-curl -L -o tokenizer.json "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/tokenizer.json"
-curl -L -o config.json "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/config.json"
-curl -L -o tokenizer_config.json "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/tokenizer_config.json"
-curl -L -o special_tokens_map.json "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/special_tokens_map.json"
-```
-
 ### Config
 
 Main config lives in `~/.aurelia/config/app.json`:
@@ -279,7 +252,7 @@ Main config lives in `~/.aurelia/config/app.json`:
   "telegram_allowed_user_ids": [123456789],
   "stt_provider": "groq",
   "max_iterations": 500,
-  "memory_window_size": 20
+  "max_session_tokens": 100000
 }
 ```
 

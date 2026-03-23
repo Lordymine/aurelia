@@ -4,7 +4,7 @@
 
 Aurelia OS is a local-first agent operating system built in Go.
 
-The system delegates LLM reasoning to a TypeScript Bridge process that wraps the Claude SDK, while Go owns orchestration, memory, scheduling, identity, and interfaces.
+The system delegates LLM reasoning to a TypeScript Bridge process that wraps the Claude SDK, while Go owns orchestration, session management, scheduling, identity, and interfaces.
 
 User interaction happens through Telegram. Operational state persists in SQLite.
 
@@ -29,8 +29,8 @@ internal/
   agents/          [agent registry — markdown-defined agents with YAML frontmatter]
   bridge/          [Go client for the TS Bridge process]
   config/          [configuration loading and validation]
-  cron/            [schedule store, scheduler, bridge-backed runtime]
-  memory/          [semantic memory with local ONNX embeddings]
+  cron/            [schedule store, scheduler, bridge-backed runtime, delivery]
+  session/         [session store, token tracking, auto-reset]
   persona/         [identity files, prompt assembly]
   runtime/         [instance and project path resolution]
   telegram/        [Telegram bot handlers]
@@ -62,17 +62,15 @@ The markdown body becomes the system prompt for that agent.
 
 Scheduled agents are registered with the cron scheduler at startup.
 
-## Memory
+## Session Management
 
-The memory system uses SQLite with BLOB embeddings and Go-side cosine similarity for semantic search.
+`internal/session` provides session store and token tracking, extracted from the telegram package for reuse across channels.
 
 Capabilities:
 
-- Store and retrieve text with vector embeddings
-- Semantic similarity search
-- Deterministic recent-message window
-
-Embeddings are generated locally via ONNX model (all-MiniLM-L6-v2) — no external embedding provider is needed.
+- Session ID management per chat (warm continue / cold resume)
+- Token usage accumulation and cost tracking
+- Auto-reset when configurable token threshold is exceeded (`max_session_tokens`)
 
 ## Runtime Scope Separation
 
@@ -104,9 +102,9 @@ External codebase the agent acts on. Project-specific rules stay local.
 
 `internal/persona` resolves canonical identity files and assembles system prompts.
 
-### Memory
+### Session
 
-`internal/memory` provides semantic storage and retrieval backed by SQLite + local ONNX embeddings.
+`internal/session` provides session store and token tracking with auto-reset logic.
 
 ### Scheduling
 
@@ -116,7 +114,7 @@ External codebase the agent acts on. Project-specific rules stay local.
 
 1. Telegram is an interface layer, not a domain layer.
 2. Identity rules belong in `persona`.
-3. Memory and embeddings belong in `memory`.
+3. Session management belongs in `session`.
 4. Agent definitions are declarative markdown, not code.
 5. The Bridge is the only path to LLM reasoning — Go never calls LLM APIs directly.
 6. Long-lived state persists in SQLite.
@@ -126,10 +124,10 @@ External codebase the agent acts on. Project-specific rules stay local.
 ## Current Capabilities
 
 - Bridge-based LLM execution via Claude SDK
-- Agent registry with markdown-defined agents
-- Semantic memory with local ONNX embeddings
-- Telegram text and audio input
-- Cron scheduling with bridge-backed execution
+- Agent registry with markdown-defined agents and LLM classification
+- Session management with token tracking and auto-reset
+- Telegram text, photo, and audio input
+- Cron scheduling with bridge-backed execution and Telegram delivery
 - Configurable multi-provider support
 - Persona-driven identity and prompt assembly
 

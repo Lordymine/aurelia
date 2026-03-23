@@ -12,7 +12,7 @@ Aurelia OS is a local-first agent operating system written in Go. It delegates L
 User ──► Telegram ──► Go runtime ──► Bridge (TS) ──► Claude SDK
                           │
                           ├── Agent Registry (markdown-defined agents)
-                          ├── Semantic Memory (SQLite + ONNX)
+                          ├── Session Management (token tracking, auto-reset)
                           ├── Cron Scheduler (bridge-backed)
                           └── Persona (identity + context)
 ```
@@ -63,11 +63,9 @@ Runtime config lives in `~/.aurelia/config/app.json`:
   "stt_provider": "groq",
   "groq_api_key": "...",
   "max_iterations": 500,
-  "memory_window_size": 20
+  "max_session_tokens": 100000
 }
 ```
-
-Embeddings use a local ONNX model (all-MiniLM-L6-v2) — no external embedding provider is needed.
 
 Source: `internal/config/`.
 
@@ -78,7 +76,7 @@ Source: `internal/config/`.
 | `cmd/aurelia/` | Entrypoint, wiring, onboarding |
 | `internal/bridge/` | Go client for the TS Bridge process |
 | `internal/agents/` | Agent registry (load markdown definitions) |
-| `internal/memory/` | Semantic memory with local ONNX embeddings |
+| `internal/session/` | Session store and token tracking |
 | `internal/persona/` | Identity files, prompt assembly |
 | `internal/cron/` | Schedule store, scheduler, bridge-backed runtime |
 | `internal/telegram/` | Telegram bot handlers |
