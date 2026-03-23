@@ -33,7 +33,6 @@ type app struct {
 }
 
 func bootstrapApp() (*app, error) {
-	// 1. Resolve instance root and bootstrap directory tree
 	resolver, err := runtime.New()
 	if err != nil {
 		return nil, fmt.Errorf("resolve instance root: %w", err)
@@ -42,22 +41,74 @@ func bootstrapApp() (*app, error) {
 		return nil, fmt.Errorf("bootstrap instance directory: %w", err)
 	}
 
-	// 2. Load config
 	cfg, err := config.Load(resolver)
 	if err != nil {
 		return nil, fmt.Errorf("load config: %w", err)
 	}
-
-	// 3. Set provider env vars for Bridge
 	setProviderEnv(cfg)
 
-	// 4. Create Bridge — always ensure ~/.aurelia/bridge/ is set up
+	br := setupBridge()
+	personaSvc := setupPersona(resolver)
+
+	agentReg, err := agents.Load(resolver.Agents())
+	if err != nil {
+		log.Printf("Warning: failed to load agents registry: %v (continuing without agents)", err)
+		agentReg = nil
+	}
+
+	cronStore, err := cron.NewSQLiteCronStore(resolver.DBPath("cron.db"))
+	if err != nil {
+		return nil, fmt.Errorf("initialize cron store: %w", err)
+	}
+
+	transcriber, err := buildTranscriber(cfg)
+	if err != nil {
+		_ = cronStore.Close()
+		return nil, fmt.Errorf("initialize transcriber: %w", err)
+	}
+
+	cronSvc := cron.NewService(cronStore, nil)
+	cronHandler := telegram.NewCronCommandHandler(cronSvc)
+	exePath, _ := os.Executable()
+	sessions := session.NewStore()
+	tracker := session.NewTracker()
+
+	bot, err := telegram.NewBotController(
+		cfg, br, agentReg, personaSvc, transcriber,
+		cronHandler, resolver.MemoryPersonas(), exePath, sessions, tracker,
+	)
+	if err != nil {
+		_ = cronStore.Close()
+		return nil, fmt.Errorf("initialize telegram bot: %w", err)
+	}
+
+	scheduler, err := setupCronScheduler(cronStore, br, agentReg, personaSvc, bot)
+	if err != nil {
+		_ = cronStore.Close()
+		return nil, fmt.Errorf("initialize cron scheduler: %w", err)
+	}
+
+	cronCtx, cronCancel := context.WithCancel(context.Background())
+
+	return &app{
+		resolver:   resolver,
+		bridge:     br,
+		agents:     agentReg,
+		cronStore:  cronStore,
+		bot:        bot,
+		scheduler:  scheduler,
+		cronCtx:    cronCtx,
+		cronCancel: cronCancel,
+	}, nil
+}
+
+// setupBridge creates the Bridge, ensuring ~/.aurelia/bridge/ is bootstrapped.
+func setupBridge() *bridge.Bridge {
 	home, _ := os.UserHomeDir()
 	aureliBridgeDir := filepath.Join(home, ".aurelia", "bridge")
 	if _, setupErr := bridge.EnsureBridge(aureliBridgeDir, bridge.EmbeddedBundleJS); setupErr != nil {
 		log.Printf("Warning: bridge auto-setup failed: %v", setupErr)
 	}
-	// Use local bridge/ if available (development), otherwise ~/.aurelia/bridge/
 	bridgeDir := findBridgeDir()
 	if bridgeDir == "" {
 		bridgeDir = aureliBridgeDir
@@ -66,16 +117,11 @@ func bootstrapApp() (*app, error) {
 	if _, err := os.Stat(bundlePath); os.IsNotExist(err) {
 		bundlePath = ""
 	}
-	br := bridge.New(bridgeDir, bundlePath)
+	return bridge.New(bridgeDir, bundlePath)
+}
 
-	// 5. Load Agent Registry
-	agentReg, err := agents.Load(resolver.Agents())
-	if err != nil {
-		log.Printf("Warning: failed to load agents registry: %v (continuing without agents)", err)
-		agentReg = nil
-	}
-
-	// 6. Build Persona service
+// setupPersona builds the canonical identity service from persona and playbook files.
+func setupPersona(resolver *runtime.PathResolver) *persona.CanonicalIdentityService {
 	personasDir := resolver.MemoryPersonas()
 	memoryDir := resolver.Memory()
 	ownerPlaybookPath := filepath.Join(memoryDir, "OWNER_PLAYBOOK.md")
@@ -94,7 +140,7 @@ func bootstrapApp() (*app, error) {
 		projectPlaybookPath = filepath.Join(cwd, "docs", "PROJECT_PLAYBOOK.md")
 	}
 
-	personaSvc := persona.NewCanonicalIdentityService(
+	return persona.NewCanonicalIdentityService(
 		filepath.Join(personasDir, "IDENTITY.md"),
 		filepath.Join(personasDir, "SOUL.md"),
 		filepath.Join(personasDir, "USER.md"),
@@ -102,104 +148,52 @@ func bootstrapApp() (*app, error) {
 		lessonsLearnedPath,
 		projectPlaybookPath,
 	)
+}
 
-	// 7. Create Cron Store
-	cronStore, err := cron.NewSQLiteCronStore(resolver.DBPath("cron.db"))
-	if err != nil {
-		return nil, fmt.Errorf("initialize cron store: %w", err)
+// telegramChatSender adapts a telebot.Bot to the cron.ChatSender interface.
+type telegramChatSender struct {
+	bot *telebot.Bot
+}
+
+func (s *telegramChatSender) Send(chatID int64, text string) error {
+	chat := &telebot.Chat{ID: chatID}
+	return telegram.SendText(s.bot, chat, text)
+}
+
+// setupCronScheduler creates the cron scheduler with Telegram delivery.
+// Returns nil scheduler if agentReg is nil.
+func setupCronScheduler(
+	cronStore *cron.SQLiteCronStore,
+	br *bridge.Bridge,
+	agentReg *agents.Registry,
+	personaSvc *persona.CanonicalIdentityService,
+	bot *telegram.BotController,
+) (*cron.Scheduler, error) {
+	if agentReg == nil {
+		return nil, nil
 	}
 
-	// 8. Create STT transcriber
-	transcriber, err := buildTranscriber(cfg)
-	if err != nil {
-		_ = cronStore.Close()
-		return nil, fmt.Errorf("initialize transcriber: %w", err)
-	}
-
-	// 9. Create Cron Service (used by both Telegram handler and scheduler)
-	cronSvc := cron.NewService(cronStore, nil)
-	cronHandler := telegram.NewCronCommandHandler(cronSvc)
-
-	// 10. Resolve aurelia binary path for cron CLI instructions
-	exePath, _ := os.Executable()
-
-	// 11. Create session Store and Tracker
-	sessions := session.NewStore()
-	tracker := session.NewTracker()
-
-	// 12. Create Telegram BotController
-	bot, err := telegram.NewBotController(
-		cfg,
-		br,
+	cronRuntime := cron.NewBridgeCronRuntime(
+		&cron.BridgeAdapter{B: br},
 		agentReg,
 		personaSvc,
-		transcriber,
-		cronHandler,
-		personasDir,
-		exePath,
-		sessions,
-		tracker,
 	)
+
+	delivery := cron.NewTelegramDelivery(&telegramChatSender{bot: bot.GetBot()})
+	deliverFn := func(ctx context.Context, job cron.CronJob, result *cron.ExecutionResult, execErr error) error {
+		return delivery.Deliver(ctx, job, result, execErr)
+	}
+
+	notifyingRuntime := cron.NewNotifyingRuntime(cronRuntime, deliverFn)
+	scheduler, err := cron.NewScheduler(cronStore, notifyingRuntime, nil, cron.SchedulerConfig{
+		PollInterval: 15 * time.Second,
+	})
 	if err != nil {
-		_ = cronStore.Close()
-		return nil, fmt.Errorf("initialize telegram bot: %w", err)
+		return nil, err
 	}
 
-	// 13. Create Cron Scheduler with BridgeCronRuntime + Telegram delivery
-	var scheduler *cron.Scheduler
-	if agentReg != nil {
-		cronRuntime := cron.NewBridgeCronRuntime(
-			&cron.BridgeAdapter{B: br},
-			agentReg,
-			personaSvc,
-		)
-
-		deliverToTelegram := func(ctx context.Context, job cron.CronJob, result *cron.ExecutionResult, execErr error) error {
-			output := ""
-			if result != nil {
-				output = result.Output
-			}
-			log.Printf("Cron delivery: job=%s chat=%d output_len=%d err=%v", job.ID[:8], job.TargetChatID, len(output), execErr)
-			if job.TargetChatID == 0 {
-				log.Println("Cron delivery skipped: no chat ID")
-				return nil
-			}
-			chat := &telebot.Chat{ID: job.TargetChatID}
-			if execErr != nil {
-				return telegram.SendError(bot.GetBot(), chat, fmt.Sprintf("Cron job %s falhou: %v", job.ID[:8], execErr))
-			}
-			if output == "" {
-				return nil
-			}
-			header := fmt.Sprintf("📋 Resultado agendamento (%s):\n\n", job.ID[:8])
-			return telegram.SendText(bot.GetBot(), chat, header+output)
-		}
-
-		notifyingRuntime := cron.NewNotifyingRuntime(cronRuntime, deliverToTelegram)
-		scheduler, err = cron.NewScheduler(cronStore, notifyingRuntime, nil, cron.SchedulerConfig{
-			PollInterval: 15 * time.Second,
-		})
-		if err != nil {
-			_ = cronStore.Close()
-			return nil, fmt.Errorf("initialize cron scheduler: %w", err)
-		}
-
-		// 14. Register scheduled agents from registry
-		registerScheduledAgents(cronStore, agentReg)
-	}
-
-	cronCtx, cronCancel := context.WithCancel(context.Background())
-
-	return &app{
-		resolver:   resolver,
-		bridge:     br,
-		agents:     agentReg,
-		cronStore:  cronStore,
-		bot:        bot,
-		scheduler:  scheduler,
-		cronCtx:    cronCtx,
-		cronCancel: cronCancel,
-	}, nil
+	registerScheduledAgents(cronStore, agentReg)
+	return scheduler, nil
 }
 
 func (a *app) start() {
@@ -218,9 +212,17 @@ func (a *app) shutdown(ctx context.Context) {
 		a.cronCancel()
 	}
 	if a.bot != nil {
-		a.bot.Stop()
+		done := make(chan struct{})
+		go func() {
+			a.bot.Stop()
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-ctx.Done():
+			log.Println("Warning: bot shutdown timed out")
+		}
 	}
-	_ = ctx
 }
 
 func (a *app) close() {
