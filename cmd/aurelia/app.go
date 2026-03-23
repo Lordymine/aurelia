@@ -63,7 +63,9 @@ func bootstrapApp() (*app, error) {
 
 	transcriber, err := buildTranscriber(cfg)
 	if err != nil {
-		_ = cronStore.Close()
+		if closeErr := cronStore.Close(); closeErr != nil {
+			log.Printf("Warning: failed to close cron store: %v", closeErr)
+		}
 		return nil, fmt.Errorf("initialize transcriber: %w", err)
 	}
 
@@ -78,13 +80,17 @@ func bootstrapApp() (*app, error) {
 		cronHandler, resolver.MemoryPersonas(), exePath, sessions, tracker,
 	)
 	if err != nil {
-		_ = cronStore.Close()
+		if closeErr := cronStore.Close(); closeErr != nil {
+			log.Printf("Warning: failed to close cron store: %v", closeErr)
+		}
 		return nil, fmt.Errorf("initialize telegram bot: %w", err)
 	}
 
 	scheduler, err := setupCronScheduler(cronStore, br, agentReg, personaSvc, bot)
 	if err != nil {
-		_ = cronStore.Close()
+		if closeErr := cronStore.Close(); closeErr != nil {
+			log.Printf("Warning: failed to close cron store: %v", closeErr)
+		}
 		return nil, fmt.Errorf("initialize cron scheduler: %w", err)
 	}
 

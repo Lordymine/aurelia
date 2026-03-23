@@ -53,7 +53,11 @@ func (bc *BotController) processInput(c telebot.Context, text string) error {
 	return nil
 }
 
-const classifyTimeout = 15 * time.Second
+const (
+	classifyTimeout         = 15 * time.Second
+	typingIndicatorInterval = 4 * time.Second
+	bridgeExecutionTimeout  = 10 * time.Minute
+)
 
 // routeAgent resolves which agent should handle the message, first by @name
 // prefix, then by LLM classification if agents are configured.
@@ -154,7 +158,7 @@ func (bc *BotController) executeAsync(chatID int64, messageID int, req bridge.Re
 	chat := &telebot.Chat{ID: chatID}
 
 	// Start typing indicator
-	stopTyping := startChatActionLoop(bc.bot, chat, telebot.Typing, 4*time.Second)
+	stopTyping := startChatActionLoop(bc.bot, chat, telebot.Typing, typingIndicatorInterval)
 	defer stopTyping()
 
 	// Progress reporter
@@ -162,13 +166,15 @@ func (bc *BotController) executeAsync(chatID int64, messageID int, req bridge.Re
 	defer progress.Delete()
 
 	// Execute via bridge
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), bridgeExecutionTimeout)
 	defer cancel()
 
 	ch, err := bc.bridge.Execute(ctx, req)
 	if err != nil {
 		log.Printf("Bridge execute error: %v", err)
-		_ = SendError(bc.bot, chat, "Falha ao conectar com o processador.")
+		if err := SendError(bc.bot, chat, "Falha ao conectar com o processador."); err != nil {
+			log.Printf("Failed to send error to chat %d: %v", chat.ID, err)
+		}
 		return
 	}
 
@@ -229,7 +235,9 @@ func (bc *BotController) processBridgeEventsAsync(chat *telebot.Chat, ch <-chan 
 				finalText = "(sem resposta)"
 			}
 
-			_ = SendTextReply(bc.bot, chat, finalText, messageID)
+			if err := SendTextReply(bc.bot, chat, finalText, messageID); err != nil {
+				log.Printf("Failed to send reply to chat %d: %v", chat.ID, err)
+			}
 			return
 
 		case "error":
@@ -241,7 +249,9 @@ func (bc *BotController) processBridgeEventsAsync(chat *telebot.Chat, ch <-chan 
 				errMsg = "Erro desconhecido no processador."
 			}
 			log.Printf("Bridge error: %s", errMsg)
-			_ = SendError(bc.bot, chat, errMsg)
+			if err := SendError(bc.bot, chat, errMsg); err != nil {
+				log.Printf("Failed to send error to chat %d: %v", chat.ID, err)
+			}
 			return
 
 		default:
@@ -252,9 +262,13 @@ func (bc *BotController) processBridgeEventsAsync(chat *telebot.Chat, ch <-chan 
 	// Channel closed without terminal event
 	finalText := strings.TrimSpace(assistantText.String())
 	if finalText != "" {
-		_ = SendTextReply(bc.bot, chat, finalText, messageID)
+		if err := SendTextReply(bc.bot, chat, finalText, messageID); err != nil {
+			log.Printf("Failed to send reply to chat %d: %v", chat.ID, err)
+		}
 	} else {
-		_ = SendError(bc.bot, chat, "O processador encerrou sem resposta.")
+		if err := SendError(bc.bot, chat, "O processador encerrou sem resposta."); err != nil {
+			log.Printf("Failed to send error to chat %d: %v", chat.ID, err)
+		}
 	}
 }
 
