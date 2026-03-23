@@ -45,7 +45,7 @@ func Load(dir string) (*Registry, error) {
 			continue
 		}
 
-		reg.agents[agent.Name] = agent
+		reg.agents[strings.ToLower(agent.Name)] = agent
 	}
 
 	return reg, nil
@@ -53,7 +53,7 @@ func Load(dir string) (*Registry, error) {
 
 // Get returns the agent with the given name, or nil if not found.
 func (r *Registry) Get(name string) *Agent {
-	return r.agents[name]
+	return r.agents[strings.ToLower(name)]
 }
 
 // Agents returns all loaded agents sorted by name.
@@ -95,9 +95,7 @@ func (r *Registry) Route(message string) *Agent {
 	if idx := strings.IndexByte(rest, ' '); idx != -1 {
 		name = rest[:idx]
 	}
-	name = strings.ToLower(name)
-
-	return r.agents[name]
+	return r.Get(name)
 }
 
 // ClassifyPrompt builds a prompt that asks an LLM to pick the best agent for a message.

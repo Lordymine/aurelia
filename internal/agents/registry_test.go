@@ -354,6 +354,65 @@ func TestRegistry_ClassifyPrompt_Empty(t *testing.T) {
 	}
 }
 
+func TestLoadNormalizesKeys(t *testing.T) {
+	dir := t.TempDir()
+
+	// Agent file with mixed-case name in YAML
+	writeAgent(t, dir, "myagent.md", `---
+name: MyAgent
+description: test
+---
+Prompt.
+`)
+
+	reg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	// Get with exact case should work
+	if reg.Get("MyAgent") == nil {
+		t.Fatal("expected Get('MyAgent') to find agent")
+	}
+	// Get with lowercase should also work
+	if reg.Get("myagent") == nil {
+		t.Fatal("expected Get('myagent') to find agent")
+	}
+	// Get with uppercase should also work
+	if reg.Get("MYAGENT") == nil {
+		t.Fatal("expected Get('MYAGENT') to find agent")
+	}
+}
+
+func TestRouteCaseInsensitive(t *testing.T) {
+	dir := t.TempDir()
+
+	writeAgent(t, dir, "myagent.md", `---
+name: MyAgent
+description: test
+---
+Prompt.
+`)
+
+	reg, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+
+	agent := reg.Route("@myagent hello")
+	if agent == nil {
+		t.Fatal("expected agent to be found with case-insensitive lookup")
+	}
+	if agent.Name != "MyAgent" {
+		t.Errorf("expected Name to preserve original case 'MyAgent', got %q", agent.Name)
+	}
+
+	agent = reg.Route("@MYAGENT hello")
+	if agent == nil {
+		t.Fatal("expected agent to be found with uppercase lookup")
+	}
+}
+
 func writeAgent(t *testing.T, dir, filename, content string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, filename), []byte(content), 0644); err != nil {
