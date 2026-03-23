@@ -31,8 +31,18 @@ type BotController struct {
 	exePath          string // path to aurelia binary for CLI instructions in system prompt
 	bootstrapMu      sync.Mutex
 	pendingBootstrap map[int64]bootstrapState
-	albumMu          sync.Mutex
-	pendingAlbums    map[string]*pendingAlbum
+	albums *albumBuffer
+}
+
+type albumBuffer struct {
+	mu      sync.Mutex
+	pending map[string]*pendingAlbum
+}
+
+func newAlbumBuffer() *albumBuffer {
+	return &albumBuffer{
+		pending: make(map[string]*pendingAlbum),
+	}
 }
 
 type pendingAlbum struct {
@@ -83,7 +93,7 @@ func NewBotController(
 		personasDir:      personasDir,
 		exePath:          exePath,
 		pendingBootstrap: make(map[int64]bootstrapState),
-		pendingAlbums:    make(map[string]*pendingAlbum),
+		albums:           newAlbumBuffer(),
 	}
 
 	bc.setupRoutes()

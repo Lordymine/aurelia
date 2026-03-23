@@ -33,10 +33,10 @@ func TestIsSupportedImageDocument(t *testing.T) {
 func TestStoreAndFlushAlbumPhotos(t *testing.T) {
 	t.Parallel()
 
-	bc := &BotController{pendingAlbums: make(map[string]*pendingAlbum)}
+	ab := newAlbumBuffer()
 
-	firstOwner := bc.storeAlbumPhoto("album-1", 12, "", telebot.Photo{File: telebot.File{FileID: "b"}})
-	secondOwner := bc.storeAlbumPhoto("album-1", 10, "Legenda do album", telebot.Photo{File: telebot.File{FileID: "a"}})
+	firstOwner := ab.store("album-1", 12, "", telebot.Photo{File: telebot.File{FileID: "b"}})
+	secondOwner := ab.store("album-1", 10, "Legenda do album", telebot.Photo{File: telebot.File{FileID: "a"}})
 
 	if !firstOwner {
 		t.Fatal("expected first photo in album to become owner")
@@ -45,7 +45,7 @@ func TestStoreAndFlushAlbumPhotos(t *testing.T) {
 		t.Fatal("expected subsequent photo not to become owner")
 	}
 
-	caption, photos, ok := bc.flushAlbumPhotos("album-1")
+	caption, photos, ok := ab.flush("album-1")
 	if !ok {
 		t.Fatal("expected album flush to succeed")
 	}
@@ -58,7 +58,7 @@ func TestStoreAndFlushAlbumPhotos(t *testing.T) {
 	if photos[0].messageID != 10 || photos[1].messageID != 12 {
 		t.Fatalf("expected photos sorted by message id, got %+v", photos)
 	}
-	if _, _, ok := bc.flushAlbumPhotos("album-1"); ok {
+	if _, _, ok := ab.flush("album-1"); ok {
 		t.Fatal("expected album to be removed after flush")
 	}
 }

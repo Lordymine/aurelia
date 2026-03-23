@@ -36,14 +36,14 @@ func (bc *BotController) handlePhoto(c telebot.Context) error {
 
 func (bc *BotController) handlePhotoAlbum(c telebot.Context, photo *telebot.Photo) error {
 	albumID := c.Message().AlbumID
-	isOwner := bc.storeAlbumPhoto(albumID, c.Message().ID, strings.TrimSpace(c.Message().Caption), *photo)
+	isOwner := bc.albums.store(albumID, c.Message().ID, strings.TrimSpace(c.Message().Caption), *photo)
 	if !isOwner {
 		return nil
 	}
 
 	time.Sleep(900 * time.Millisecond)
 
-	caption, photos, ok := bc.flushAlbumPhotos(albumID)
+	caption, photos, ok := bc.albums.flush(albumID)
 	if !ok {
 		return nil
 	}
@@ -194,14 +194,14 @@ func buildDocumentInput(caption, filename, mimeType, filePath string) string {
 	return fmt.Sprintf("%s\n\n[Analise o anexo %s]:\n%s", caption, filename, extractedText)
 }
 
-func (bc *BotController) storeAlbumPhoto(albumID string, messageID int, caption string, photo telebot.Photo) bool {
-	bc.albumMu.Lock()
-	defer bc.albumMu.Unlock()
+func (ab *albumBuffer) store(albumID string, messageID int, caption string, photo telebot.Photo) bool {
+	ab.mu.Lock()
+	defer ab.mu.Unlock()
 
-	album, ok := bc.pendingAlbums[albumID]
+	album, ok := ab.pending[albumID]
 	if !ok {
 		album = &pendingAlbum{ownerMessageID: messageID}
-		bc.pendingAlbums[albumID] = album
+		ab.pending[albumID] = album
 	}
 	if caption != "" && album.caption == "" {
 		album.caption = caption
@@ -210,15 +210,15 @@ func (bc *BotController) storeAlbumPhoto(albumID string, messageID int, caption 
 	return album.ownerMessageID == messageID
 }
 
-func (bc *BotController) flushAlbumPhotos(albumID string) (string, []albumPhoto, bool) {
-	bc.albumMu.Lock()
-	defer bc.albumMu.Unlock()
+func (ab *albumBuffer) flush(albumID string) (string, []albumPhoto, bool) {
+	ab.mu.Lock()
+	defer ab.mu.Unlock()
 
-	album, ok := bc.pendingAlbums[albumID]
+	album, ok := ab.pending[albumID]
 	if !ok {
 		return "", nil, false
 	}
-	delete(bc.pendingAlbums, albumID)
+	delete(ab.pending, albumID)
 
 	photos := append([]albumPhoto(nil), album.photos...)
 	sort.SliceStable(photos, func(i, j int) bool {
