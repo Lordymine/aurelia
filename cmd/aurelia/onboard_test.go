@@ -23,7 +23,6 @@ func TestRunOnboard_SavesInteractiveConfig(t *testing.T) {
 		"telegram-token",
 		"101,202",
 		"700",
-		"33",
 		"",
 	}, "\n")
 
@@ -65,9 +64,6 @@ func TestRunOnboard_SavesInteractiveConfig(t *testing.T) {
 	if cfg.MaxIterations != 700 {
 		t.Fatalf("MaxIterations = %d", cfg.MaxIterations)
 	}
-	if cfg.MemoryWindowSize != 33 {
-		t.Fatalf("MemoryWindowSize = %d", cfg.MemoryWindowSize)
-	}
 	if cfg.DBPath != filepath.Join(tmpDir, "data", "aurelia.db") {
 		t.Fatalf("DBPath = %q", cfg.DBPath)
 	}
@@ -99,7 +95,6 @@ func TestRunOnboard_PreservesExistingValuesOnBlankInput(t *testing.T) {
 		AlibabaAPIKey:          "old-alibaba",
 		GroqAPIKey:             "old-groq",
 		MaxIterations:          600,
-		MemoryWindowSize:       21,
 	}); err != nil {
 		t.Fatalf("config.SaveEditable() error = %v", err)
 	}
@@ -130,8 +125,8 @@ func TestRunOnboard_PreservesExistingValuesOnBlankInput(t *testing.T) {
 	if len(cfg.TelegramAllowedUserIDs) != 1 || cfg.TelegramAllowedUserIDs[0] != 42 {
 		t.Fatalf("expected allowed user IDs to be preserved, got %v", cfg.TelegramAllowedUserIDs)
 	}
-	if cfg.MaxIterations != 600 || cfg.MemoryWindowSize != 21 {
-		t.Fatalf("expected numeric fields to be preserved, got max=%d memory=%d", cfg.MaxIterations, cfg.MemoryWindowSize)
+	if cfg.MaxIterations != 600 {
+		t.Fatalf("expected MaxIterations to be preserved, got %d", cfg.MaxIterations)
 	}
 }
 

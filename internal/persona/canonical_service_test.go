@@ -17,7 +17,6 @@ func newTestCanonicalService(t *testing.T) *CanonicalIdentityService {
 	identityContent := `---
 name: "Lex"
 role: "Team Lead"
-memory_window_size: 10
 tools:
   - read_file
 ---

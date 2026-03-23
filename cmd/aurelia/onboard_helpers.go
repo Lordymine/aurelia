@@ -37,8 +37,6 @@ func nextOnboardStep(cfg config.EditableConfig, step onboardStep) onboardStep {
 	case stepTelegramUsers:
 		return stepRuntimeMaxIterations
 	case stepRuntimeMaxIterations:
-		return stepRuntimeMemoryWindow
-	case stepRuntimeMemoryWindow:
 		return stepReview
 	default:
 		return stepReview
@@ -69,10 +67,8 @@ func previousOnboardStep(cfg config.EditableConfig, step onboardStep) onboardSte
 		return stepTelegramToken
 	case stepRuntimeMaxIterations:
 		return stepTelegramUsers
-	case stepRuntimeMemoryWindow:
-		return stepRuntimeMaxIterations
 	case stepReview:
-		return stepRuntimeMemoryWindow
+		return stepRuntimeMaxIterations
 	default:
 		return stepLLMProvider
 	}
@@ -392,9 +388,6 @@ func renderSavedSummary(stdout io.Writer, resolver *runtime.PathResolver, curren
 		return err
 	}
 	if err := writef(stdout, "Max iterations: %d\n", current.MaxIterations); err != nil {
-		return err
-	}
-	if err := writef(stdout, "Memory window size: %d\n", current.MemoryWindowSize); err != nil {
 		return err
 	}
 	return nil

@@ -41,7 +41,6 @@ func defaultModelForProvider(provider string) string {
 
 const (
 	defaultMaxIterations    = 500
-	defaultMemoryWindowSize = 20
 	defaultMaxSessionTokens = 100000
 	defaultLLMProvider      = "kimi"
 	defaultLLMModel         = "kimi-k2-thinking"
@@ -64,16 +63,11 @@ type AppConfig struct {
 	TelegramBotToken       string  `json:"telegram_bot_token"`
 	TelegramAllowedUserIDs []int64 `json:"telegram_allowed_user_ids"`
 
-	EmbeddingProvider string `json:"embedding_provider"`
-	EmbeddingModel    string `json:"embedding_model"`
-	EmbeddingAPIKey   string `json:"embedding_api_key,omitempty"`
-
 	STTProvider string `json:"stt_provider"`
 
 	MaxIterations    int    `json:"max_iterations"`
 	MaxSessionTokens int    `json:"max_session_tokens"`
 	DBPath           string `json:"db_path"`
-	MemoryWindowSize int    `json:"memory_window_size"`
 	MCPConfigPath    string `json:"mcp_servers_config_path"`
 }
 
@@ -113,16 +107,11 @@ type fileConfig struct {
 	TelegramBotToken       string  `json:"telegram_bot_token"`
 	TelegramAllowedUserIDs []int64 `json:"telegram_allowed_user_ids"`
 
-	EmbeddingProvider string `json:"embedding_provider,omitempty"`
-	EmbeddingModel    string `json:"embedding_model,omitempty"`
-	EmbeddingAPIKey   string `json:"embedding_api_key,omitempty"`
-
 	STTProvider string `json:"stt_provider"`
 
 	MaxIterations    int    `json:"max_iterations"`
 	MaxSessionTokens int    `json:"max_session_tokens"`
 	DBPath           string `json:"db_path"`
-	MemoryWindowSize int    `json:"memory_window_size"`
 	MCPConfigPath    string `json:"mcp_servers_config_path"`
 }
 
@@ -183,7 +172,6 @@ func defaultFileConfig(r *runtime.PathResolver) fileConfig {
 		MaxIterations:          defaultMaxIterations,
 		MaxSessionTokens:       defaultMaxSessionTokens,
 		DBPath:                 filepath.Join(r.Data(), "aurelia.db"),
-		MemoryWindowSize:       defaultMemoryWindowSize,
 		MCPConfigPath:          filepath.Join(r.Config(), "mcp_servers.json"),
 	}
 }
@@ -207,9 +195,6 @@ func normalizeFileConfig(cfg fileConfig, r *runtime.PathResolver) fileConfig {
 	}
 	if cfg.DBPath == "" {
 		cfg.DBPath = defaults.DBPath
-	}
-	if cfg.MemoryWindowSize <= 0 {
-		cfg.MemoryWindowSize = defaults.MemoryWindowSize
 	}
 	if cfg.MaxSessionTokens <= 0 {
 		cfg.MaxSessionTokens = defaults.MaxSessionTokens
@@ -247,14 +232,10 @@ func toAppConfig(cfg fileConfig) *AppConfig {
 		Providers:              cfg.Providers,
 		TelegramBotToken:       cfg.TelegramBotToken,
 		TelegramAllowedUserIDs: cfg.TelegramAllowedUserIDs,
-		EmbeddingProvider:      cfg.EmbeddingProvider,
-		EmbeddingModel:         cfg.EmbeddingModel,
-		EmbeddingAPIKey:        cfg.EmbeddingAPIKey,
 		STTProvider:            cfg.STTProvider,
 		MaxIterations:          cfg.MaxIterations,
 		MaxSessionTokens:       cfg.MaxSessionTokens,
 		DBPath:                 cfg.DBPath,
-		MemoryWindowSize:       cfg.MemoryWindowSize,
 		MCPConfigPath:          cfg.MCPConfigPath,
 	}
 }

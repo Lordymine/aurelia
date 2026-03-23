@@ -78,7 +78,6 @@ func (bc *BotController) popPendingBootstrap(userID int64) (bootstrapState, bool
 const coderIdentityTemplate = `---
 name: "Aurelia Coder"
 role: "Agente de Programacao e Orquestrador Tecnico"
-memory_window_size: 50
 ---
 
 # IDENTITY
@@ -99,7 +98,6 @@ Para TODOS os agendamentos, use o CLI da Aurelia via Bash. O sistema prompt cont
 const assistIdentityTemplate = `---
 name: "Aurelia Assistente"
 role: "Assistente Pessoal Virtual"
-memory_window_size: 50
 ---
 
 # IDENTITY

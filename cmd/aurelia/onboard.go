@@ -28,7 +28,6 @@ const (
 	stepTelegramToken
 	stepTelegramUsers
 	stepRuntimeMaxIterations
-	stepRuntimeMemoryWindow
 	stepReview
 )
 
@@ -141,7 +140,6 @@ func runOnboardPrompt(stdin io.Reader, stdout io.Writer, resolver *runtime.PathR
 	current.TelegramBotToken, _ = promptString(reader, stdout, "Telegram bot token", current.TelegramBotToken, true)
 	current.TelegramAllowedUserIDs, _ = promptInt64List(reader, stdout, "Telegram allowed user IDs (comma-separated)", current.TelegramAllowedUserIDs)
 	current.MaxIterations, _ = promptInt(reader, stdout, "Max iterations", current.MaxIterations)
-	current.MemoryWindowSize, _ = promptInt(reader, stdout, "Memory window size", current.MemoryWindowSize)
 
 	current.STTProvider = "groq"
 

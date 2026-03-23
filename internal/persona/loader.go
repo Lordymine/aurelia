@@ -10,7 +10,6 @@ import (
 type Config struct {
 	Name             string   `yaml:"name"`
 	Role             string   `yaml:"role"`
-	MemoryWindowSize int      `yaml:"memory_window_size"`
 	Tools            []string `yaml:"tools"`
 }
 

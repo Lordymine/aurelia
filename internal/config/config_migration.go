@@ -19,7 +19,6 @@ type legacyFileConfig struct {
 	GroqAPIKey             string  `json:"groq_api_key"`
 	MaxIterations          int     `json:"max_iterations"`
 	DBPath                 string  `json:"db_path"`
-	MemoryWindowSize       int     `json:"memory_window_size"`
 	MCPConfigPath          string  `json:"mcp_servers_config_path"`
 }
 
@@ -58,7 +57,6 @@ func migrateLegacy(legacy legacyFileConfig) fileConfig {
 		STTProvider:            legacy.STTProvider,
 		MaxIterations:          legacy.MaxIterations,
 		DBPath:                 legacy.DBPath,
-		MemoryWindowSize:       legacy.MemoryWindowSize,
 		MCPConfigPath:          legacy.MCPConfigPath,
 	}
 }

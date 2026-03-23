@@ -22,10 +22,6 @@ type EditableConfig struct {
 	AnthropicAuthMode      string
 	GroqAPIKey             string
 	MaxIterations          int
-	MemoryWindowSize       int
-	EmbeddingProvider      string
-	EmbeddingModel         string
-	EmbeddingAPIKey        string
 }
 
 func (c EditableConfig) LLMAPIKey(provider string) string {
@@ -75,7 +71,6 @@ func DefaultEditableConfig() EditableConfig {
 		STTProvider:            defaultSTTProvider,
 		TelegramAllowedUserIDs: []int64{},
 		MaxIterations:          defaultMaxIterations,
-		MemoryWindowSize:       defaultMemoryWindowSize,
 	}
 }
 
@@ -110,10 +105,6 @@ func appConfigToEditable(cfg *AppConfig) *EditableConfig {
 		AlibabaAPIKey:          cfg.ProviderAPIKey("alibaba"),
 		GroqAPIKey:             cfg.ProviderAPIKey("groq"),
 		MaxIterations:          cfg.MaxIterations,
-		MemoryWindowSize:       cfg.MemoryWindowSize,
-		EmbeddingProvider:      cfg.EmbeddingProvider,
-		EmbeddingModel:         cfg.EmbeddingModel,
-		EmbeddingAPIKey:        cfg.EmbeddingAPIKey,
 	}
 }
 
@@ -155,11 +146,7 @@ func editableToFileConfig(editable EditableConfig) fileConfig {
 		STTProvider:            editable.STTProvider,
 		TelegramBotToken:       editable.TelegramBotToken,
 		TelegramAllowedUserIDs: append([]int64(nil), editable.TelegramAllowedUserIDs...),
-		EmbeddingProvider:      editable.EmbeddingProvider,
-		EmbeddingModel:         editable.EmbeddingModel,
-		EmbeddingAPIKey:        editable.EmbeddingAPIKey,
 		MaxIterations:          editable.MaxIterations,
-		MemoryWindowSize:       editable.MemoryWindowSize,
 	}
 }
 
@@ -168,12 +155,8 @@ func sameFileConfig(a, b fileConfig) bool {
 		a.DefaultProvider != b.DefaultProvider ||
 		a.DefaultModel != b.DefaultModel ||
 		a.STTProvider != b.STTProvider ||
-		a.EmbeddingProvider != b.EmbeddingProvider ||
-		a.EmbeddingModel != b.EmbeddingModel ||
-		a.EmbeddingAPIKey != b.EmbeddingAPIKey ||
 		a.MaxIterations != b.MaxIterations ||
 		a.DBPath != b.DBPath ||
-		a.MemoryWindowSize != b.MemoryWindowSize ||
 		a.MCPConfigPath != b.MCPConfigPath {
 		return false
 	}

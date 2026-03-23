@@ -17,7 +17,6 @@ func TestLoadPersona(t *testing.T) {
 	identityContent := `---
 name: "TestAgent"
 role: "Tester"
-memory_window_size: 10
 tools:
   - read_file
 ---
@@ -79,7 +78,6 @@ func TestLoadPersona_IncludesCanonicalIdentityBlock(t *testing.T) {
 	identityContent := `---
 name: "Lex"
 role: "Team Lead"
-memory_window_size: 10
 tools:
   - read_file
 ---

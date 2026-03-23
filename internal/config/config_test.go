@@ -36,9 +36,6 @@ func TestLoad_CreatesDefaultAppConfigWhenMissing(t *testing.T) {
 	if cfg.STTProvider != defaultSTTProvider {
 		t.Fatalf("STTProvider = %q, want %q", cfg.STTProvider, defaultSTTProvider)
 	}
-	if cfg.MemoryWindowSize != defaultMemoryWindowSize {
-		t.Fatalf("MemoryWindowSize = %d, want %d", cfg.MemoryWindowSize, defaultMemoryWindowSize)
-	}
 	if cfg.Providers == nil {
 		t.Fatal("Providers should not be nil")
 	}
@@ -66,11 +63,8 @@ func TestLoadConfig_NewSchema(t *testing.T) {
 		},
 		"telegram_bot_token": "test-token",
 		"telegram_allowed_user_ids": [123456],
-		"embedding_provider": "voyage",
-		"embedding_model": "voyage-3",
 		"stt_provider": "groq",
-		"max_iterations": 100,
-		"memory_window_size": 15
+		"max_iterations": 100
 	}`
 
 	if err := os.MkdirAll(filepath.Dir(r.AppConfig()), 0o700); err != nil {
@@ -106,17 +100,8 @@ func TestLoadConfig_NewSchema(t *testing.T) {
 	if !reflect.DeepEqual(cfg.TelegramAllowedUserIDs, []int64{123456}) {
 		t.Fatalf("TelegramAllowedUserIDs = %v", cfg.TelegramAllowedUserIDs)
 	}
-	if cfg.EmbeddingProvider != "voyage" {
-		t.Fatalf("EmbeddingProvider = %q", cfg.EmbeddingProvider)
-	}
-	if cfg.EmbeddingModel != "voyage-3" {
-		t.Fatalf("EmbeddingModel = %q", cfg.EmbeddingModel)
-	}
 	if cfg.MaxIterations != 100 {
 		t.Fatalf("MaxIterations = %d", cfg.MaxIterations)
-	}
-	if cfg.MemoryWindowSize != 15 {
-		t.Fatalf("MemoryWindowSize = %d", cfg.MemoryWindowSize)
 	}
 }
 
@@ -139,10 +124,6 @@ func TestSaveAndReload(t *testing.T) {
 		KimiAPIKey:             "kimi-key",
 		GroqAPIKey:             "groq-key",
 		MaxIterations:          300,
-		MemoryWindowSize:       25,
-		EmbeddingProvider:      "voyage",
-		EmbeddingModel:         "voyage-3",
-		EmbeddingAPIKey:        "voyage-key",
 	}
 
 	if err := SaveEditable(r, original); err != nil {
@@ -175,20 +156,8 @@ func TestSaveAndReload(t *testing.T) {
 	if !reflect.DeepEqual(cfg.TelegramAllowedUserIDs, []int64{42, 99}) {
 		t.Fatalf("TelegramAllowedUserIDs = %v", cfg.TelegramAllowedUserIDs)
 	}
-	if cfg.EmbeddingProvider != "voyage" {
-		t.Fatalf("EmbeddingProvider = %q", cfg.EmbeddingProvider)
-	}
-	if cfg.EmbeddingModel != "voyage-3" {
-		t.Fatalf("EmbeddingModel = %q", cfg.EmbeddingModel)
-	}
-	if cfg.EmbeddingAPIKey != "voyage-key" {
-		t.Fatalf("EmbeddingAPIKey = %q", cfg.EmbeddingAPIKey)
-	}
 	if cfg.MaxIterations != 300 {
 		t.Fatalf("MaxIterations = %d", cfg.MaxIterations)
-	}
-	if cfg.MemoryWindowSize != 25 {
-		t.Fatalf("MemoryWindowSize = %d", cfg.MemoryWindowSize)
 	}
 	if cfg.DBPath != filepath.Join(tmpDir, "data", "aurelia.db") {
 		t.Fatalf("DBPath = %q", cfg.DBPath)
@@ -238,9 +207,6 @@ func TestConfig_DefaultValues(t *testing.T) {
 	if cfg.DBPath != filepath.Join(tmpDir, "data", "aurelia.db") {
 		t.Fatalf("DBPath = %q, want instance default", cfg.DBPath)
 	}
-	if cfg.MemoryWindowSize != defaultMemoryWindowSize {
-		t.Fatalf("MemoryWindowSize = %d, want %d", cfg.MemoryWindowSize, defaultMemoryWindowSize)
-	}
 	if cfg.MCPConfigPath != filepath.Join(tmpDir, "config", "mcp_servers.json") {
 		t.Fatalf("MCPConfigPath = %q, want instance default", cfg.MCPConfigPath)
 	}
@@ -267,8 +233,7 @@ func TestLoad_LegacyFormatMigration(t *testing.T) {
 		"openai_api_key": "openai-key",
 		"openai_auth_mode": "codex",
 		"groq_api_key": "groq-key",
-		"max_iterations": 321,
-		"memory_window_size": 42
+		"max_iterations": 321
 	}`
 
 	if err := os.MkdirAll(filepath.Dir(r.AppConfig()), 0o700); err != nil {
@@ -316,9 +281,6 @@ func TestLoad_LegacyFormatMigration(t *testing.T) {
 	if cfg.MaxIterations != 321 {
 		t.Fatalf("MaxIterations = %d", cfg.MaxIterations)
 	}
-	if cfg.MemoryWindowSize != 42 {
-		t.Fatalf("MemoryWindowSize = %d", cfg.MemoryWindowSize)
-	}
 
 	// Verify the file was rewritten in new format
 	data, err := os.ReadFile(r.AppConfig())
@@ -361,7 +323,6 @@ func TestSaveEditable_PreservesManagedPaths(t *testing.T) {
 		AlibabaAPIKey:          "alibaba-key",
 		GroqAPIKey:             "groq-key",
 		MaxIterations:          900,
-		MemoryWindowSize:       25,
 	}); err != nil {
 		t.Fatalf("SaveEditable() unexpected error: %v", err)
 	}
@@ -406,7 +367,6 @@ func TestLoadEditable_RoundTrip(t *testing.T) {
 		AnthropicAPIKey:        "ant-key",
 		GroqAPIKey:             "groq-key",
 		MaxIterations:          100,
-		MemoryWindowSize:       10,
 	}
 
 	if err := SaveEditable(r, original); err != nil {

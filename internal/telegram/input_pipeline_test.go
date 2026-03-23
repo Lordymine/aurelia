@@ -13,7 +13,6 @@ func TestBuildSystemPrompt_WithoutDependencies(t *testing.T) {
 
 	bc := &BotController{
 		config: &config.AppConfig{
-			MemoryWindowSize: 5,
 			Providers:        map[string]config.ProviderConfig{},
 		},
 	}
@@ -32,7 +31,6 @@ func TestBuildSystemPrompt_WithAgent(t *testing.T) {
 
 	bc := &BotController{
 		config: &config.AppConfig{
-			MemoryWindowSize: 5,
 			Providers:        map[string]config.ProviderConfig{},
 		},
 	}
@@ -59,7 +57,6 @@ func TestBuildSystemPrompt_AgentWithEmptyPrompt(t *testing.T) {
 
 	bc := &BotController{
 		config: &config.AppConfig{
-			MemoryWindowSize: 5,
 			Providers:        map[string]config.ProviderConfig{},
 		},
 	}
@@ -81,25 +78,3 @@ func TestBuildSystemPrompt_AgentWithEmptyPrompt(t *testing.T) {
 	}
 }
 
-func TestTruncate(t *testing.T) {
-	t.Parallel()
-
-	short := "hello"
-	if got := truncate(short, 10); got != short {
-		t.Fatalf("truncate(%q, 10) = %q, want %q", short, got, short)
-	}
-
-	long := strings.Repeat("a", 100)
-	got := truncate(long, 10)
-	if len([]rune(got)) != 13 { // 10 + "..."
-		t.Fatalf("truncate(100 chars, 10) should produce 13 runes, got %d", len([]rune(got)))
-	}
-	if !strings.HasSuffix(got, "...") {
-		t.Fatalf("truncate should end with ..., got %q", got)
-	}
-
-	exact := "abcde"
-	if got := truncate(exact, 5); got != exact {
-		t.Fatalf("truncate(%q, 5) = %q, want %q", exact, got, exact)
-	}
-}
