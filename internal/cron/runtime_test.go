@@ -39,23 +39,6 @@ func (f *fakePersona) BuildPrompt() (string, error) {
 	return f.prompt, f.err
 }
 
-type fakeMemory struct {
-	injectResult string
-	injectErr    error
-	savedContent string
-	savedAgent   string
-}
-
-func (f *fakeMemory) Inject(_ context.Context, _ string, _ int) (string, error) {
-	return f.injectResult, f.injectErr
-}
-
-func (f *fakeMemory) Save(_ context.Context, content, _ string, agent string) error {
-	f.savedContent = content
-	f.savedAgent = agent
-	return nil
-}
-
 // --- tests ---
 
 func TestBridgeCronRuntime_ExecuteJob(t *testing.T) {
@@ -73,9 +56,8 @@ func TestBridgeCronRuntime_ExecuteJob(t *testing.T) {
 		},
 	}}
 	persona := &fakePersona{prompt: "I am Aurelia."}
-	mem := &fakeMemory{injectResult: "## Relevant Memories\n\n- [fact] something"}
 
-	runtime := NewBridgeCronRuntime(executor, registry, persona, mem)
+	runtime := NewBridgeCronRuntime(executor, registry, persona)
 
 	job := CronJob{
 		ID:           "job-1",
@@ -108,7 +90,7 @@ func TestBridgeCronRuntime_ExecuteJob(t *testing.T) {
 		t.Fatalf("unexpected permission mode: %q", executor.lastReq.Options.PermissionMode)
 	}
 
-	// System prompt should contain persona + agent prompt + memory
+	// System prompt should contain persona + agent prompt
 	sp := executor.lastReq.Options.SystemPrompt
 	if sp == "" {
 		t.Fatal("system prompt is empty")
@@ -118,17 +100,6 @@ func TestBridgeCronRuntime_ExecuteJob(t *testing.T) {
 	}
 	if !contains(sp, "You are a news agent.") {
 		t.Fatalf("system prompt missing agent prompt: %q", sp)
-	}
-	if !contains(sp, "Relevant Memories") {
-		t.Fatalf("system prompt missing memory context: %q", sp)
-	}
-
-	// Verify memory was saved
-	if mem.savedContent != "daily summary ready" {
-		t.Fatalf("expected memory save with content %q, got %q", "daily summary ready", mem.savedContent)
-	}
-	if mem.savedAgent != "news" {
-		t.Fatalf("expected memory save with agent %q, got %q", "news", mem.savedAgent)
 	}
 }
 
@@ -140,9 +111,8 @@ func TestBridgeCronRuntime_NoAgent(t *testing.T) {
 	}
 	registry := &fakeRegistry{agents: map[string]*agents.Agent{}}
 	persona := &fakePersona{prompt: "base"}
-	mem := &fakeMemory{}
 
-	runtime := NewBridgeCronRuntime(executor, registry, persona, mem)
+	runtime := NewBridgeCronRuntime(executor, registry, persona)
 
 	job := CronJob{
 		ID:     "job-2",
@@ -168,9 +138,8 @@ func TestBridgeCronRuntime_BridgeError(t *testing.T) {
 		"test": {Name: "test", Prompt: "test agent"},
 	}}
 	persona := &fakePersona{prompt: "base"}
-	mem := &fakeMemory{}
 
-	runtime := NewBridgeCronRuntime(executor, registry, persona, mem)
+	runtime := NewBridgeCronRuntime(executor, registry, persona)
 
 	job := CronJob{ID: "job-3", AgentName: "test", Prompt: "test"}
 
@@ -192,9 +161,8 @@ func TestBridgeCronRuntime_BridgeExecuteFailure(t *testing.T) {
 		"test": {Name: "test", Prompt: "test agent"},
 	}}
 	persona := &fakePersona{prompt: "base"}
-	mem := &fakeMemory{}
 
-	runtime := NewBridgeCronRuntime(executor, registry, persona, mem)
+	runtime := NewBridgeCronRuntime(executor, registry, persona)
 
 	job := CronJob{ID: "job-4", AgentName: "test", Prompt: "test"}
 
@@ -215,9 +183,8 @@ func TestBridgeCronRuntime_PersonaError(t *testing.T) {
 		"test": {Name: "test", Prompt: "test agent"},
 	}}
 	persona := &fakePersona{err: errors.New("file not found")}
-	mem := &fakeMemory{}
 
-	runtime := NewBridgeCronRuntime(executor, registry, persona, mem)
+	runtime := NewBridgeCronRuntime(executor, registry, persona)
 
 	job := CronJob{ID: "job-5", AgentName: "test", Prompt: "test"}
 
@@ -227,32 +194,6 @@ func TestBridgeCronRuntime_PersonaError(t *testing.T) {
 	}
 	if !contains(err.Error(), "build persona prompt") {
 		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestBridgeCronRuntime_MemoryInjectFailureNonFatal(t *testing.T) {
-	t.Parallel()
-
-	executor := &fakeBridgeExecutor{
-		result: &bridge.Event{Type: "result", Content: "ok"},
-	}
-	registry := &fakeRegistry{agents: map[string]*agents.Agent{
-		"test": {Name: "test", Prompt: "test agent"},
-	}}
-	persona := &fakePersona{prompt: "base"}
-	mem := &fakeMemory{injectErr: errors.New("embed failed")}
-
-	runtime := NewBridgeCronRuntime(executor, registry, persona, mem)
-
-	job := CronJob{ID: "job-6", AgentName: "test", Prompt: "test"}
-
-	// Should succeed despite memory inject failure
-	result, err := runtime.ExecuteJob(context.Background(), job)
-	if err != nil {
-		t.Fatalf("ExecuteJob() error = %v", err)
-	}
-	if result.Output != "ok" {
-		t.Fatalf("unexpected output: %q", result.Output)
 	}
 }
 

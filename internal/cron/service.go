@@ -71,7 +71,11 @@ func (s *Service) ListJobs(ctx context.Context, chatID int64) ([]CronJob, error)
 }
 
 func (s *Service) PauseJob(ctx context.Context, jobID string) error {
-	job, err := s.store.GetJob(ctx, jobID)
+	fullID, err := s.store.ResolveJobID(ctx, jobID)
+	if err != nil {
+		return err
+	}
+	job, err := s.store.GetJob(ctx, fullID)
 	if err != nil {
 		return err
 	}
@@ -84,7 +88,11 @@ func (s *Service) PauseJob(ctx context.Context, jobID string) error {
 }
 
 func (s *Service) ResumeJob(ctx context.Context, jobID string) error {
-	job, err := s.store.GetJob(ctx, jobID)
+	fullID, err := s.store.ResolveJobID(ctx, jobID)
+	if err != nil {
+		return err
+	}
+	job, err := s.store.GetJob(ctx, fullID)
 	if err != nil {
 		return err
 	}
@@ -97,7 +105,11 @@ func (s *Service) ResumeJob(ctx context.Context, jobID string) error {
 }
 
 func (s *Service) DeleteJob(ctx context.Context, jobID string) error {
-	return s.store.DeleteJob(ctx, jobID)
+	fullID, err := s.store.ResolveJobID(ctx, jobID)
+	if err != nil {
+		return err
+	}
+	return s.store.DeleteJob(ctx, fullID)
 }
 
 // AddRecurringJob creates a cron-scheduled job for the given chat.

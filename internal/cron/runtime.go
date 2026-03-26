@@ -9,12 +9,11 @@ import (
 )
 
 // BridgeCronRuntime executes cron jobs via the Claude Code bridge,
-// resolving agent config from the registry and injecting persona + memory.
+// resolving agent config from the registry and injecting persona prompt.
 type BridgeCronRuntime struct {
 	bridge  BridgeExecutor
 	agents  AgentRegistry
 	persona PersonaBuilder
-	memory  MemoryStore
 }
 
 // AgentRegistry resolves agent definitions by name.
@@ -27,25 +26,17 @@ type PersonaBuilder interface {
 	BuildPrompt() (string, error)
 }
 
-// MemoryStore injects relevant memories and saves new ones.
-type MemoryStore interface {
-	Inject(ctx context.Context, query string, limit int) (string, error)
-	Save(ctx context.Context, content, category, agent string) error
-}
-
 // NewBridgeCronRuntime creates a runtime that executes jobs via Bridge
-// with agent config, persona prompt, and memory context.
+// with agent config and persona prompt.
 func NewBridgeCronRuntime(
 	b BridgeExecutor,
 	ag AgentRegistry,
 	p PersonaBuilder,
-	m MemoryStore,
 ) *BridgeCronRuntime {
 	return &BridgeCronRuntime{
 		bridge:  b,
 		agents:  ag,
 		persona: p,
-		memory:  m,
 	}
 }
 
@@ -78,12 +69,7 @@ func (r *BridgeCronRuntime) ExecuteJob(ctx context.Context, job CronJob) (*Execu
 		opts.MCPServers = agent.MCPServers
 	}
 
-	// 4. Inject memory context (best effort)
-	if memCtx, err := r.memory.Inject(ctx, job.Prompt, 10); err == nil && memCtx != "" {
-		opts.SystemPrompt += "\n\n" + memCtx
-	}
-
-	// 5. Execute via Bridge
+	// 4. Execute via Bridge
 	ev, err := r.bridge.Execute(ctx, bridge.Request{
 		Command: "query",
 		Prompt:  job.Prompt,
@@ -95,13 +81,6 @@ func (r *BridgeCronRuntime) ExecuteJob(ctx context.Context, job CronJob) (*Execu
 	if ev.Type == "error" {
 		return nil, fmt.Errorf("bridge error: %s", ev.Message)
 	}
-
-	// 6. Save result to memory (best effort)
-	agentName := job.AgentName
-	if agentName == "" {
-		agentName = "cron"
-	}
-	_ = r.memory.Save(ctx, ev.Content, "conversation", agentName)
 
 	return &ExecutionResult{
 		Output:    ev.Content,
