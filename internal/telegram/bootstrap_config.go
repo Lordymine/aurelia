@@ -8,8 +8,14 @@ import (
 	"gopkg.in/telebot.v3"
 )
 
+const (
+	bootstrapStepAssistant = "assistant"
+	bootstrapStepProfile   = "profile"
+)
+
 type bootstrapState struct {
 	Choice string
+	Step   string
 }
 
 type bootstrapPreset struct {

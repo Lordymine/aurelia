@@ -30,9 +30,13 @@ const (
 	bootstrapFailureMessage = "❌ **Falha no bootstrap**\n\n" +
 		"Nao consegui criar os arquivos base de persona."
 
-	bootstrapProfileMessage = "✅ **Modo inicial configurado**\n\n" +
+	bootstrapAssistantMessage = "✅ **Modo inicial selecionado**\n\n" +
+		"Agora descreva como voce quer que eu seja: personalidade, tom, estilo.\n\n" +
+		"Exemplo: `Quero um assistente direto, sem floreios, que use humor seco quando apropriado.`"
+
+	bootstrapProfileMessage = "✅ **Personalidade configurada**\n\n" +
 		"Agora me diga seu nome e como prefere que eu trabalhe com voce.\n\n" +
-		"Exemplo: `Me chamo Rafael e quero respostas diretas, sem floreios.`"
+		"Exemplo: `Me chamo Rafael, sou dev e quero respostas diretas.`"
 
 	bootstrapSuccessMessage = "✅ **Personas criadas**\n\n" +
 		"Suas configuracoes base foram salvas em `~/.aurelia/memory/personas/`.\n\n" +

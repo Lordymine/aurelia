@@ -28,6 +28,7 @@ func (bc *BotController) handleBootstrapChoice(choice string) func(telebot.Conte
 	return func(c telebot.Context) error {
 		_ = bc.bot.Respond(c.Callback(), &telebot.CallbackResponse{})
 
+		// Write base preset as fallback (will be overwritten by LLM generation)
 		preset, err := bootstrapPresetForChoice(choice)
 		if err != nil {
 			return SendContextText(c, bootstrapFailureMessage)
@@ -37,8 +38,8 @@ func (bc *BotController) handleBootstrapChoice(choice string) func(telebot.Conte
 			return SendContextText(c, bootstrapFailureMessage)
 		}
 
-		bc.setPendingBootstrap(c.Sender().ID, bootstrapState{Choice: choice})
-		return SendContextText(c, bootstrapProfileMessage)
+		bc.setPendingBootstrap(c.Sender().ID, bootstrapState{Choice: choice, Step: bootstrapStepAssistant})
+		return SendContextText(c, bootstrapAssistantMessage)
 	}
 }
 
