@@ -9,8 +9,9 @@ import (
 
 	"github.com/kocar/aurelia/internal/agents"
 	"github.com/kocar/aurelia/internal/cron"
-	"github.com/kocar/aurelia/internal/memory"
 	"github.com/kocar/aurelia/internal/persona"
+	"github.com/kocar/aurelia/internal/session"
+	"github.com/kocar/aurelia/internal/telegram"
 )
 
 func TestWiring_AllComponentsInitialize(t *testing.T) {
@@ -50,13 +51,6 @@ func TestWiring_AllComponentsInitialize(t *testing.T) {
 		t.Fatalf("agents.Load() error = %v", err)
 	}
 
-	mockEmbedder := memory.NewMockEmbedder(64)
-	memStore, err := memory.NewStore(":memory:", mockEmbedder)
-	if err != nil {
-		t.Fatalf("memory.NewStore() error = %v", err)
-	}
-	defer memStore.Close()
-
 	// Verify persona builds prompt.
 	prompt, err := personaSvc.BuildPrompt()
 	if err != nil {
@@ -75,39 +69,13 @@ func TestWiring_AllComponentsInitialize(t *testing.T) {
 		t.Fatalf("expected model 'claude-sonnet-4-6', got %q", agent.Model)
 	}
 
-	// Verify memory save + search.
-	ctx := context.Background()
-	if err := memStore.Save(ctx, "test memory content", "fact", "helper"); err != nil {
-		t.Fatalf("memory.Save() error = %v", err)
-	}
-
-	results, err := memStore.Search(ctx, "test memory", 1)
-	if err != nil {
-		t.Fatalf("memory.Search() error = %v", err)
-	}
-	if len(results) != 1 {
-		t.Fatalf("expected 1 search result, got %d", len(results))
-	}
-
-	// Verify memory injection.
-	memCtx, err := memStore.Inject(ctx, "test memory", 5)
-	if err != nil {
-		t.Fatalf("memory.Inject() error = %v", err)
-	}
-	if !strings.Contains(memCtx, "test memory content") {
-		t.Fatalf("expected injected context to contain 'test memory content', got %q", memCtx)
-	}
-
 	// Verify full system prompt can be assembled.
-	fullPrompt := prompt + "\n\n" + agent.Prompt + "\n\n" + memCtx
+	fullPrompt := prompt + "\n\n" + agent.Prompt
 	if !strings.Contains(fullPrompt, "Aurelia") {
 		t.Fatal("full prompt missing persona identity")
 	}
 	if !strings.Contains(fullPrompt, "general tasks") {
 		t.Fatal("full prompt missing agent prompt")
-	}
-	if !strings.Contains(fullPrompt, "test memory content") {
-		t.Fatal("full prompt missing injected memory")
 	}
 }
 
@@ -185,32 +153,12 @@ func TestRouting_BuildsCorrectPrompt(t *testing.T) {
 		t.Fatal("expected routing match")
 	}
 
-	mockEmbedder := memory.NewMockEmbedder(64)
-	memStore, err := memory.NewStore(":memory:", mockEmbedder)
-	if err != nil {
-		t.Fatalf("memory.NewStore() error = %v", err)
-	}
-	defer memStore.Close()
-
-	ctx := context.Background()
-	if err := memStore.Save(ctx, "user prefers Go", "preference", "helper"); err != nil {
-		t.Fatalf("memory.Save() error = %v", err)
-	}
-
-	memCtx, err := memStore.Inject(ctx, "analyze", 5)
-	if err != nil {
-		t.Fatalf("memory.Inject() error = %v", err)
-	}
-
-	fullPrompt := personaPrompt + "\n\n" + routed.Prompt + "\n\n" + memCtx
+	fullPrompt := personaPrompt + "\n\n" + routed.Prompt
 	if !strings.Contains(fullPrompt, "Aurelia") {
 		t.Fatal("full prompt missing persona")
 	}
 	if !strings.Contains(fullPrompt, "general tasks") {
 		t.Fatal("full prompt missing agent instructions")
-	}
-	if !strings.Contains(fullPrompt, "user prefers Go") {
-		t.Fatal("full prompt missing memory context")
 	}
 }
 
@@ -286,6 +234,99 @@ func TestCron_ScheduledAgentsRegistered(t *testing.T) {
 	}
 	if stored.Prompt != "Generate daily report." {
 		t.Fatalf("expected prompt 'Generate daily report.', got %q", stored.Prompt)
+	}
+}
+
+func TestCommandLayer_MatchRouting(t *testing.T) {
+	// Verify that system commands are correctly identified and normal messages pass through.
+	commands := []struct {
+		text    string
+		isCmd   bool
+		cmdName string
+	}{
+		{"nova conversa", true, "session_reset"},
+		{"meus agendamentos", true, "cron_list"},
+		{"status", true, "status"},
+		{"quais agents?", true, "list_agents"},
+		{"quais modelos?", true, "list_models"},
+		{"agenda todo dia às 9h check emails", true, "cron_create"},
+		{"bom dia, como vai?", false, ""},
+		{"me ajuda a debugar esse código", false, ""},
+		{"ontem eu tentei agendar uma reunião", false, ""}, // narrative — should NOT match
+	}
+
+	for _, tc := range commands {
+		cmd := telegram.MatchCommand(tc.text)
+		if tc.isCmd && cmd == nil {
+			t.Errorf("expected %q to match as command (%s), got nil", tc.text, tc.cmdName)
+		}
+		if !tc.isCmd && cmd != nil {
+			t.Errorf("expected %q to NOT match as command, got type=%d", tc.text, cmd.Type)
+		}
+	}
+}
+
+func TestCommandLayer_SessionResetClearsState(t *testing.T) {
+	// Integration: session reset via command layer clears session and tracker.
+	sessions := session.NewStore()
+	tracker := session.NewTracker()
+
+	sessions.Set(100, "sess-integration-test")
+	tracker.Add(100, 5000, 2000, 3, 0.05)
+
+	// Verify session exists.
+	if sid := sessions.Get(100); sid != "sess-integration-test" {
+		t.Fatalf("expected session, got %q", sid)
+	}
+
+	// Clear (simulating what cmdSessionReset does).
+	sessions.Clear(100)
+	tracker.Clear(100)
+
+	if sid := sessions.Get(100); sid != "" {
+		t.Fatalf("session should be cleared, got %q", sid)
+	}
+	usage := tracker.Get(100)
+	if usage.NumTurns != 0 {
+		t.Fatalf("tracker should be cleared, got %d turns", usage.NumTurns)
+	}
+}
+
+func TestCommandLayer_CronListIntegration(t *testing.T) {
+	// Integration: list cron jobs from real SQLite store.
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "cron.db")
+
+	store, err := cron.NewSQLiteCronStore(dbPath)
+	if err != nil {
+		t.Fatalf("NewSQLiteCronStore() error = %v", err)
+	}
+	defer store.Close()
+
+	ctx := context.Background()
+	job := cron.CronJob{
+		ID:           "cmd-layer-test-job",
+		OwnerUserID:  "user-1",
+		TargetChatID: 200,
+		ScheduleType: "cron",
+		CronExpr:     "0 9 * * *",
+		Prompt:       "check emails",
+		Active:       true,
+	}
+	if err := store.CreateJob(ctx, job); err != nil {
+		t.Fatalf("CreateJob() error = %v", err)
+	}
+
+	// List jobs for the chat.
+	jobs, err := store.ListJobsByChat(ctx, 200)
+	if err != nil {
+		t.Fatalf("ListJobsByChat() error = %v", err)
+	}
+	if len(jobs) != 1 {
+		t.Fatalf("expected 1 job, got %d", len(jobs))
+	}
+	if jobs[0].Prompt != "check emails" {
+		t.Fatalf("expected prompt 'check emails', got %q", jobs[0].Prompt)
 	}
 }
 

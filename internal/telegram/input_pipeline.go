@@ -24,6 +24,11 @@ func (bc *BotController) processInput(c telebot.Context, text string) error {
 		}
 	}
 
+	// 0. Command layer — intercept system commands before LLM
+	if cmd := MatchCommand(text); cmd != nil {
+		return bc.handleCommand(c, cmd)
+	}
+
 	// 1. Route to agent (sync — fast)
 	agent := bc.routeAgent(text)
 
