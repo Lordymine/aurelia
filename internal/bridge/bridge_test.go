@@ -368,6 +368,100 @@ func TestStopBeforeStart(t *testing.T) {
 	}
 }
 
+func TestBridge_OnDeath_CalledOnCrash(t *testing.T) {
+	dir := t.TempDir()
+
+	// Script that exits immediately after first request — simulates crash.
+	crashMockJS := `
+const readline = require('readline');
+const rl = readline.createInterface({ input: process.stdin, terminal: false });
+rl.on('line', () => {
+    process.exit(1);
+});
+rl.on('close', () => process.exit(0));
+`
+	b := newMockBridge(t, dir, crashMockJS)
+
+	called := make(chan struct{})
+	b.SetOnDeath(func() {
+		close(called)
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Send a request — process will crash
+	ch, err := b.Execute(ctx, Request{Command: "query", Prompt: "crash"})
+	if err != nil {
+		t.Fatalf("Execute() error: %v", err)
+	}
+
+	// Drain channel
+	for range ch {
+	}
+
+	select {
+	case <-called:
+		// OK — callback was invoked
+	case <-time.After(5 * time.Second):
+		t.Fatal("OnDeath callback was not called after process crash")
+	}
+}
+
+func TestBridge_OnDeath_NotCalledOnStop(t *testing.T) {
+	dir := t.TempDir()
+	b := newMockBridge(t, dir, longLivedMockJS)
+
+	called := false
+	b.SetOnDeath(func() {
+		called = true
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	// Use bridge to ensure process is running
+	if err := b.Ping(ctx); err != nil {
+		t.Fatalf("Ping error: %v", err)
+	}
+
+	// Stop intentionally
+	b.Stop()
+
+	if called {
+		t.Fatal("OnDeath callback should not be called on intentional Stop")
+	}
+}
+
+func TestBridge_OnDeath_NilCallback(t *testing.T) {
+	dir := t.TempDir()
+
+	crashMockJS := `
+const readline = require('readline');
+const rl = readline.createInterface({ input: process.stdin, terminal: false });
+rl.on('line', () => {
+    process.exit(1);
+});
+rl.on('close', () => process.exit(0));
+`
+	b := newMockBridge(t, dir, crashMockJS)
+	// No SetOnDeath — should not panic
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	ch, err := b.Execute(ctx, Request{Command: "query", Prompt: "crash"})
+	if err != nil {
+		t.Fatalf("Execute() error: %v", err)
+	}
+
+	for range ch {
+	}
+
+	// Give readLoop time to complete
+	time.Sleep(100 * time.Millisecond)
+}
+
 func TestBridge_Stop_And_Restart(t *testing.T) {
 	dir := t.TempDir()
 

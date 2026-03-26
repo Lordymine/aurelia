@@ -55,6 +55,17 @@ func (s *Store) Clear(chatID int64) {
 	delete(s.cwds, chatID)
 }
 
+// DeactivateAll marks all sessions as inactive (cold). Used when the bridge
+// process dies — sessions keep their IDs for resume, but Continue must not be
+// used since the process that held them is gone.
+func (s *Store) DeactivateAll() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, e := range s.sessions {
+		e.active = false
+	}
+}
+
 func (s *Store) GetCwd(chatID int64) string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

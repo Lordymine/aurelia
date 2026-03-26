@@ -31,7 +31,8 @@ type BotController struct {
 	exePath          string // path to aurelia binary for CLI instructions in system prompt
 	bootstrapMu      sync.Mutex
 	pendingBootstrap map[int64]bootstrapState
-	albums *albumBuffer
+	albums           *albumBuffer
+	bridgeFailures   bridgeFailureTracker
 }
 
 type albumBuffer struct {

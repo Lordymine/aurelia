@@ -48,6 +48,9 @@ type Bridge struct {
 
 	// done is closed when the reader goroutine exits.
 	done chan struct{}
+
+	// onDeath is called when the process exits unexpectedly (not via Stop).
+	onDeath func()
 }
 
 // New creates a Bridge that runs in bridgeDir.
@@ -70,6 +73,14 @@ func New(bridgeDir string, bundlePath string) *Bridge {
 		pending:   make(map[string]chan Event),
 		done:      done,
 	}
+}
+
+// SetOnDeath registers a callback invoked when the bridge process exits
+// unexpectedly. It is NOT called during intentional Stop().
+func (b *Bridge) SetOnDeath(fn func()) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.onDeath = fn
 }
 
 // Start launches the bridge process. Safe to call multiple times — no-op if
@@ -159,6 +170,15 @@ func (b *Bridge) readLoop() {
 			b.pendingMu.Unlock()
 			safeClose(ch)
 		}
+	}
+
+	// Notify listener if this was an unexpected exit (not Stop).
+	b.mu.Lock()
+	stopping := b.stopping
+	cb := b.onDeath
+	b.mu.Unlock()
+	if !stopping && cb != nil {
+		cb()
 	}
 
 	// Process exited or stdout closed — close all pending channels.

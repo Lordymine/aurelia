@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 	"time"
 
 	"gopkg.in/telebot.v3"
@@ -15,7 +16,12 @@ import (
 
 func (bc *BotController) processInput(c telebot.Context, text string) error {
 	if state, ok := bc.popPendingBootstrap(c.Sender().ID); ok {
-		return bc.completeBootstrapProfile(c, state, text)
+		switch state.Step {
+		case bootstrapStepAssistant:
+			return bc.completeBootstrapAssistant(c, state, text)
+		default:
+			return bc.completeBootstrapProfile(c, state, text)
+		}
 	}
 
 	// 1. Route to agent (sync — fast)
@@ -151,6 +157,67 @@ func (bc *BotController) buildBridgeRequest(userText, systemPrompt string, agent
 	return req
 }
 
+// bridgeOutcome indicates how processBridgeEventsAsync terminated.
+type bridgeOutcome int
+
+const (
+	outcomeSuccess      bridgeOutcome = iota // terminal "result" event
+	outcomeLLMError                          // terminal "error" event
+	outcomeProcessDeath                      // channel closed without terminal event
+)
+
+// bridgeFailureTracker tracks consecutive bridge failures to implement cooldown.
+type bridgeFailureTracker struct {
+	mu       sync.Mutex
+	failures []time.Time // timestamps of recent failures
+}
+
+const (
+	failureWindowMax   = 3                // max failures before cooldown
+	failureWindowDur   = 1 * time.Minute  // window to count failures
+	cooldownDuration   = 30 * time.Second // cooldown period after max failures
+)
+
+// record adds a failure timestamp and returns true if in cooldown.
+func (t *bridgeFailureTracker) record() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	now := time.Now()
+	t.failures = append(t.failures, now)
+
+	// Trim failures outside the window
+	cutoff := now.Add(-failureWindowDur)
+	start := 0
+	for start < len(t.failures) && t.failures[start].Before(cutoff) {
+		start++
+	}
+	t.failures = t.failures[start:]
+
+	return len(t.failures) >= failureWindowMax
+}
+
+// inCooldown returns true if we're in cooldown (recent failures >= max).
+func (t *bridgeFailureTracker) inCooldown() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	if len(t.failures) < failureWindowMax {
+		return false
+	}
+
+	// In cooldown if last failure was within cooldown duration
+	last := t.failures[len(t.failures)-1]
+	return time.Since(last) < cooldownDuration
+}
+
+// reset clears the failure history after a successful execution.
+func (t *bridgeFailureTracker) reset() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.failures = t.failures[:0]
+}
+
 // executeAsync runs the bridge execution in a goroutine with its own typing
 // indicator and progress reporter. Errors are sent directly to the chat since
 // the original handler has already returned.
@@ -178,14 +245,72 @@ func (bc *BotController) executeAsync(chatID int64, messageID int, req bridge.Re
 		return
 	}
 
-	// Process events
-	bc.processBridgeEventsAsync(chat, ch, progress, userText, messageID)
+	// Process events — first attempt
+	outcome := bc.processBridgeEventsAsync(chat, ch, progress, userText, messageID)
+
+	if outcome == outcomeSuccess {
+		bc.bridgeFailures.reset()
+		return
+	}
+	if outcome != outcomeProcessDeath {
+		return
+	}
+
+	// --- RETRY PATH: bridge died mid-request ---
+	bc.bridgeFailures.record()
+	log.Printf("bridge: process died mid-request, retrying for chat=%d", chatID)
+
+	// P3: Check cooldown before retrying
+	if bc.bridgeFailures.inCooldown() {
+		log.Printf("bridge: in cooldown, skipping retry for chat=%d", chatID)
+		_ = SendError(bc.bot, chat, "Processador temporariamente indisponível. Tente novamente em alguns segundos.")
+		return
+	}
+
+	// P2: Send reconnection feedback
+	var reconnectMsg *telebot.Message
+	reconnectMsg, _ = bc.bot.Send(chat, "⚡ Reconectando...")
+
+	retryReq := req
+	retryReq.Options.Continue = false
+	retryReq.RequestID = ""
+	if sid := bc.sessions.Get(chatID); sid != "" {
+		retryReq.Options.Resume = sid
+		log.Printf("bridge: retry with resume sid=%s", sid[:8])
+	}
+
+	ch, err = bc.bridge.Execute(ctx, retryReq)
+	bc.deleteMessage(reconnectMsg) // Bridge restarted (or failed) — remove feedback immediately
+	if err != nil {
+		log.Printf("bridge: retry failed for chat=%d: %v", chatID, err)
+		_ = SendError(bc.bot, chat, "Processador reiniciado mas não conseguiu completar. Tente novamente.")
+		return
+	}
+
+	// Second attempt — no more retries
+	outcome = bc.processBridgeEventsAsync(chat, ch, progress, userText, messageID)
+
+	if outcome == outcomeSuccess {
+		bc.bridgeFailures.reset()
+	} else if outcome == outcomeProcessDeath {
+		bc.bridgeFailures.record()
+		_ = SendError(bc.bot, chat, "Processador reiniciado mas não conseguiu completar. Tente novamente.")
+	}
+}
+
+// deleteMessage removes a Telegram message if it exists. Used to clean up
+// temporary feedback messages like "Reconectando...".
+func (bc *BotController) deleteMessage(msg *telebot.Message) {
+	if msg != nil && bc.bot != nil {
+		if err := bc.bot.Delete(msg); err != nil {
+			log.Printf("Failed to delete reconnect message: %v", err)
+		}
+	}
 }
 
 // processBridgeEventsAsync reads bridge events and sends responses to the
-// Telegram chat. Unlike the old processBridgeEvents, it takes a *telebot.Chat
-// instead of telebot.Context, since the handler has already returned.
-func (bc *BotController) processBridgeEventsAsync(chat *telebot.Chat, ch <-chan bridge.Event, progress *progressReporter, userText string, messageID int) {
+// Telegram chat. Returns the outcome so the caller can decide whether to retry.
+func (bc *BotController) processBridgeEventsAsync(chat *telebot.Chat, ch <-chan bridge.Event, progress *progressReporter, userText string, messageID int) bridgeOutcome {
 	var assistantText strings.Builder
 
 	for ev := range ch {
@@ -238,7 +363,7 @@ func (bc *BotController) processBridgeEventsAsync(chat *telebot.Chat, ch <-chan 
 			if err := SendTextReply(bc.bot, chat, finalText, messageID); err != nil {
 				log.Printf("Failed to send reply to chat %d: %v", chat.ID, err)
 			}
-			return
+			return outcomeSuccess
 
 		case "error":
 			errMsg := ev.Message
@@ -252,24 +377,15 @@ func (bc *BotController) processBridgeEventsAsync(chat *telebot.Chat, ch <-chan 
 			if err := SendError(bc.bot, chat, errMsg); err != nil {
 				log.Printf("Failed to send error to chat %d: %v", chat.ID, err)
 			}
-			return
+			return outcomeLLMError
 
 		default:
 			log.Printf("Bridge event (ignored): %s", ev.Type)
 		}
 	}
 
-	// Channel closed without terminal event
-	finalText := strings.TrimSpace(assistantText.String())
-	if finalText != "" {
-		if err := SendTextReply(bc.bot, chat, finalText, messageID); err != nil {
-			log.Printf("Failed to send reply to chat %d: %v", chat.ID, err)
-		}
-	} else {
-		if err := SendError(bc.bot, chat, "O processador encerrou sem resposta."); err != nil {
-			log.Printf("Failed to send error to chat %d: %v", chat.ID, err)
-		}
-	}
+	// Channel closed without terminal event — process died
+	return outcomeProcessDeath
 }
 
 // buildSystemPrompt assembles the system prompt from persona, agent, cron/telegram instructions, and memory.

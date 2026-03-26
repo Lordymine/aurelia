@@ -78,6 +78,11 @@ func bootstrapApp() (*app, error) {
 	sessions := session.NewStore()
 	tracker := session.NewTracker()
 
+	br.SetOnDeath(func() {
+		log.Printf("bridge: process died, deactivating all sessions")
+		sessions.DeactivateAll()
+	})
+
 	bot, err := telegram.NewBotController(
 		cfg, br, agentReg, personaSvc, transcriber,
 		cronHandler, resolver.MemoryPersonas(), exePath, sessions, tracker,
