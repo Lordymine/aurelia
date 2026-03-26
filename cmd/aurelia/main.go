@@ -16,17 +16,16 @@ func main() {
 				log.Fatalf("Failed to run onboarding: %v", err)
 			}
 			return
-		case "auth":
-			if len(os.Args) > 2 {
-				switch os.Args[2] {
-				case "openai":
-					if err := runOpenAIAuthLogin(os.Stdin, os.Stdout); err != nil {
-						log.Fatalf("Failed to run OpenAI auth login: %v", err)
-					}
-					return
-				}
+		case "cron":
+			if err := runCronCLI(os.Args[2:]); err != nil {
+				log.Fatalf("Cron command failed: %v", err)
 			}
-			log.Fatalf("Unknown auth command")
+			return
+		case "telegram":
+			if err := runTelegramCLI(os.Args[2:]); err != nil {
+				log.Fatalf("Telegram command failed: %v", err)
+			}
+			return
 		default:
 			log.Fatalf("Unknown command: %s", os.Args[1])
 		}

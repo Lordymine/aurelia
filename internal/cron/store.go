@@ -1,6 +1,7 @@
 package cron
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 
@@ -24,6 +25,19 @@ func NewSQLiteCronStore(dbPath string) (*SQLiteCronStore, error) {
 	}
 
 	return store, nil
+}
+
+// WithTx runs fn inside a database transaction.
+func (s *SQLiteCronStore) WithTx(ctx context.Context, fn func(tx *sql.Tx) error) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	if err := fn(tx); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *SQLiteCronStore) Close() error {

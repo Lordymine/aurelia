@@ -1,6 +1,9 @@
 package cron
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 func (s *SQLiteCronStore) initialize() error {
 	query := `
@@ -35,5 +38,29 @@ func (s *SQLiteCronStore) initialize() error {
 	if err != nil {
 		return fmt.Errorf("initialize cron schema: %w", err)
 	}
+
+	// Migration: add columns if missing (safe to re-run)
+	for _, col := range []string{
+		"ALTER TABLE cron_executions ADD COLUMN session_id TEXT DEFAULT ''",
+		"ALTER TABLE cron_executions ADD COLUMN cost_usd REAL DEFAULT 0",
+		"ALTER TABLE cron_executions ADD COLUMN tokens_used INTEGER DEFAULT 0",
+	} {
+		_, err := s.db.Exec(col)
+		if err != nil && !strings.Contains(err.Error(), "duplicate column") {
+			return fmt.Errorf("migration: %w", err)
+		}
+	}
+
+	// Index for ListDueJobs query
+	_, err = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_cron_jobs_due ON cron_jobs(active, next_run_at)`)
+	if err != nil {
+		return fmt.Errorf("create due jobs index: %w", err)
+	}
+
+	_, err = s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_cron_jobs_chat ON cron_jobs(target_chat_id)`)
+	if err != nil {
+		return fmt.Errorf("create chat jobs index: %w", err)
+	}
+
 	return nil
 }

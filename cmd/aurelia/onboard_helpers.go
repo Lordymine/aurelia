@@ -10,23 +10,20 @@ import (
 
 	"github.com/kocar/aurelia/internal/config"
 	"github.com/kocar/aurelia/internal/runtime"
-	"github.com/kocar/aurelia/pkg/llm"
 )
 
 func nextOnboardStep(cfg config.EditableConfig, step onboardStep) onboardStep {
 	switch step {
 	case stepLLMProvider:
-		if cfg.LLMProvider == "openai" {
-			return stepOpenAIAuthMode
+		if config.NormalizeProvider(cfg.LLMProvider) == "anthropic" {
+			return stepAnthropicAuthMode
 		}
 		return stepLLMKey
-	case stepOpenAIAuthMode:
-		if usesOpenAICodex(cfg) {
-			return stepOpenAICodexLogin
+	case stepAnthropicAuthMode:
+		if usesAnthropicSubscription(cfg) {
+			return stepLLMModel
 		}
 		return stepLLMKey
-	case stepOpenAICodexLogin:
-		return stepLLMModel
 	case stepLLMKey:
 		return stepLLMModel
 	case stepLLMModel:
@@ -40,8 +37,6 @@ func nextOnboardStep(cfg config.EditableConfig, step onboardStep) onboardStep {
 	case stepTelegramUsers:
 		return stepRuntimeMaxIterations
 	case stepRuntimeMaxIterations:
-		return stepRuntimeMemoryWindow
-	case stepRuntimeMemoryWindow:
 		return stepReview
 	default:
 		return stepReview
@@ -50,18 +45,16 @@ func nextOnboardStep(cfg config.EditableConfig, step onboardStep) onboardStep {
 
 func previousOnboardStep(cfg config.EditableConfig, step onboardStep) onboardStep {
 	switch step {
-	case stepOpenAIAuthMode:
+	case stepAnthropicAuthMode:
 		return stepLLMProvider
-	case stepOpenAICodexLogin:
-		return stepOpenAIAuthMode
 	case stepLLMKey:
-		if cfg.LLMProvider == "openai" {
-			return stepOpenAIAuthMode
+		if config.NormalizeProvider(cfg.LLMProvider) == "anthropic" {
+			return stepAnthropicAuthMode
 		}
 		return stepLLMProvider
 	case stepLLMModel:
-		if cfg.LLMProvider == "openai" && usesOpenAICodex(cfg) {
-			return stepOpenAICodexLogin
+		if config.NormalizeProvider(cfg.LLMProvider) == "anthropic" && usesAnthropicSubscription(cfg) {
+			return stepAnthropicAuthMode
 		}
 		return stepLLMKey
 	case stepSTTProvider:
@@ -74,10 +67,8 @@ func previousOnboardStep(cfg config.EditableConfig, step onboardStep) onboardSte
 		return stepTelegramToken
 	case stepRuntimeMaxIterations:
 		return stepTelegramUsers
-	case stepRuntimeMemoryWindow:
-		return stepRuntimeMaxIterations
 	case stepReview:
-		return stepRuntimeMemoryWindow
+		return stepRuntimeMaxIterations
 	default:
 		return stepLLMProvider
 	}
@@ -96,9 +87,9 @@ func wrapIndex(index, size int) int {
 	return index
 }
 
-func selectedProviderIndex(provider string) int {
+func selectedProviderIndex(p string) int {
 	for i, option := range llmProviderChoices() {
-		if option == llm.NormalizeProvider(provider) {
+		if option == config.NormalizeProvider(p) {
 			return i
 		}
 	}
@@ -106,29 +97,29 @@ func selectedProviderIndex(provider string) int {
 }
 
 func llmProviderChoices() []string {
-	return llm.ProviderChoices()
+	return providerChoices()
 }
 
 func llmProviderLabels() []string {
-	return llm.ProviderLabels()
+	return providerLabels()
 }
 
-func llmKeyLabel(provider string) string {
-	spec, ok := llm.Provider(provider)
+func llmKeyLabel(p string) string {
+	spec, ok := provider(p)
 	if !ok {
-		spec, _ = llm.Provider("kimi")
+		spec, _ = provider("kimi")
 	}
 	return spec.APIKeyLabel
 }
 
-func usesOpenAICodex(cfg config.EditableConfig) bool {
-	return llm.NormalizeProvider(cfg.LLMProvider) == "openai" && cfg.OpenAIAuthMode == "codex"
+func usesAnthropicSubscription(cfg config.EditableConfig) bool {
+	return config.NormalizeProvider(cfg.LLMProvider) == "anthropic" && cfg.AnthropicAuthMode == "subscription"
 }
 
-func llmKeyHelp(provider string) string {
-	spec, ok := llm.Provider(provider)
+func llmKeyHelp(p string) string {
+	spec, ok := provider(p)
 	if !ok {
-		spec, _ = llm.Provider("kimi")
+		spec, _ = provider("kimi")
 	}
 	return spec.APIKeyHelp
 }
@@ -139,10 +130,6 @@ func currentLLMKey(cfg config.EditableConfig) string {
 
 func setCurrentLLMKey(cfg *config.EditableConfig, value string) {
 	cfg.SetLLMAPIKey(cfg.LLMProvider, value)
-}
-
-func runOpenAIDeviceAuthCommand(stdin io.Reader, stdout io.Writer) error {
-	return runCodexLoginCommand(stdin, stdout, "--device-auth")
 }
 
 func promptString(reader *bufio.Reader, stdout io.Writer, label, current string, secret bool) (string, error) {
@@ -371,16 +358,16 @@ func renderSavedSummary(stdout io.Writer, resolver *runtime.PathResolver, curren
 	if err := writef(stdout, "LLM provider: %s\n", strings.ToUpper(current.LLMProvider)); err != nil {
 		return err
 	}
-	if current.LLMProvider == "openai" {
-		if err := writef(stdout, "OpenAI auth mode: %s\n", current.OpenAIAuthMode); err != nil {
+	if config.NormalizeProvider(current.LLMProvider) == "anthropic" {
+		if err := writef(stdout, "Anthropic auth mode: %s\n", current.AnthropicAuthMode); err != nil {
 			return err
 		}
 	}
 	if err := writef(stdout, "LLM model: %s\n", current.LLMModel); err != nil {
 		return err
 	}
-	if usesOpenAICodex(*current) {
-		if err := writef(stdout, "OpenAI Codex login: run `aurelia auth openai`\n"); err != nil {
+	if usesAnthropicSubscription(*current) {
+		if err := writef(stdout, "Anthropic auth: subscription (no API key)\n"); err != nil {
 			return err
 		}
 	} else {
@@ -401,9 +388,6 @@ func renderSavedSummary(stdout io.Writer, resolver *runtime.PathResolver, curren
 		return err
 	}
 	if err := writef(stdout, "Max iterations: %d\n", current.MaxIterations); err != nil {
-		return err
-	}
-	if err := writef(stdout, "Memory window size: %d\n", current.MemoryWindowSize); err != nil {
 		return err
 	}
 	return nil

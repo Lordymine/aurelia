@@ -6,7 +6,6 @@ import (
 
 	"github.com/kocar/aurelia/internal/config"
 	"github.com/kocar/aurelia/internal/runtime"
-	"github.com/kocar/aurelia/pkg/llm"
 )
 
 func (u *onboardingUI) View(resolver *runtime.PathResolver) string {
@@ -14,7 +13,7 @@ func (u *onboardingUI) View(resolver *runtime.PathResolver) string {
 	b.WriteString("\x1b[2J\x1b[H")
 	b.WriteString(renderOnboardingHeader())
 	_, _ = fmt.Fprintf(&b, "Config file: %s\n", resolver.AppConfig())
-	_, _ = fmt.Fprintf(&b, "Step %d/12\n\n", int(u.step)+1)
+	_, _ = fmt.Fprintf(&b, "Step %d/11\n\n", int(u.step)+1)
 	if u.message != "" {
 		b.WriteString(colorize("! "+u.message, colorBlue))
 		b.WriteString("\n\n")
@@ -26,16 +25,11 @@ func (u *onboardingUI) View(resolver *runtime.PathResolver) string {
 		b.WriteString("Select the main chat model provider.\n\n")
 		b.WriteString(renderMenu(llmProviderLabels(), u.menuIndex))
 		b.WriteString("\nUse arrows and Enter.\n")
-	case stepOpenAIAuthMode:
-		b.WriteString("OpenAI Auth Mode\n")
-		b.WriteString("Choose whether OpenAI should use an API key or the local Codex CLI.\n\n")
-		b.WriteString(renderMenu([]string{"API key", "Codex CLI (experimental)"}, u.menuIndex))
+	case stepAnthropicAuthMode:
+		b.WriteString("Anthropic Auth Mode\n")
+		b.WriteString("Choose whether Anthropic should use an API key or a subscription (Max plan).\n\n")
+		b.WriteString(renderMenu([]string{"API key", "Subscription (Max plan)"}, u.menuIndex))
 		b.WriteString("\nUse arrows and Enter. Use left to go back.\n")
-	case stepOpenAICodexLogin:
-		b.WriteString("OpenAI Codex Login\n")
-		b.WriteString("Launch the Codex device-auth flow now to get the link and verification code.\n\n")
-		b.WriteString(renderMenu([]string{"Launch login now", "Skip for now", "Back"}, u.menuIndex))
-		b.WriteString("\nUse arrows and Enter.\n")
 	case stepLLMKey:
 		b.WriteString(u.renderInputStep(llmKeyLabel(u.cfg.LLMProvider), llmKeyHelp(u.cfg.LLMProvider), true))
 	case stepLLMModel:
@@ -66,18 +60,16 @@ func (u *onboardingUI) View(resolver *runtime.PathResolver) string {
 		b.WriteString(u.renderInputStep("Telegram allowed user IDs", "Comma-separated list, e.g. 123,456.", false))
 	case stepRuntimeMaxIterations:
 		b.WriteString(u.renderInputStep("Max iterations", "Maximum loop iterations per run.", false))
-	case stepRuntimeMemoryWindow:
-		b.WriteString(u.renderInputStep("Memory window size", "How many recent messages stay in the working window.", false))
 	case stepReview:
 		b.WriteString("Review & Save\n")
 		b.WriteString("Check the config before saving.\n\n")
 		_, _ = fmt.Fprintf(&b, "LLM provider: %s\n", strings.ToUpper(u.cfg.LLMProvider))
-		if u.cfg.LLMProvider == "openai" {
-			_, _ = fmt.Fprintf(&b, "OpenAI auth mode: %s\n", u.cfg.OpenAIAuthMode)
+		if config.NormalizeProvider(u.cfg.LLMProvider) == "anthropic" {
+			_, _ = fmt.Fprintf(&b, "Anthropic auth mode: %s\n", u.cfg.AnthropicAuthMode)
 		}
 		_, _ = fmt.Fprintf(&b, "LLM model: %s\n", u.cfg.LLMModel)
-		if usesOpenAICodex(u.cfg) {
-			_, _ = fmt.Fprintf(&b, "OpenAI Codex login: run `aurelia auth openai`\n")
+		if usesAnthropicSubscription(u.cfg) {
+			_, _ = fmt.Fprintf(&b, "Anthropic auth: subscription (no API key)\n")
 		} else {
 			_, _ = fmt.Fprintf(&b, "%s: %s\n", llmKeyLabel(u.cfg.LLMProvider), maskSecret(currentLLMKey(u.cfg)))
 		}
@@ -85,8 +77,7 @@ func (u *onboardingUI) View(resolver *runtime.PathResolver) string {
 		_, _ = fmt.Fprintf(&b, "Groq API key: %s\n", maskSecret(u.cfg.GroqAPIKey))
 		_, _ = fmt.Fprintf(&b, "Telegram bot token: %s\n", maskSecret(u.cfg.TelegramBotToken))
 		_, _ = fmt.Fprintf(&b, "Telegram allowed user IDs: %s\n", formatInt64List(u.cfg.TelegramAllowedUserIDs))
-		_, _ = fmt.Fprintf(&b, "Max iterations: %d\n", u.cfg.MaxIterations)
-		_, _ = fmt.Fprintf(&b, "Memory window size: %d\n\n", u.cfg.MemoryWindowSize)
+		_, _ = fmt.Fprintf(&b, "Max iterations: %d\n\n", u.cfg.MaxIterations)
 		b.WriteString(renderMenu(u.reviewOptions, u.menuIndex))
 		b.WriteString("\nUse arrows and Enter. Use left to go back. Press Ctrl+C to cancel.\n")
 	}
@@ -116,10 +107,8 @@ func (u *onboardingUI) HandleKey(ev keyEvent) (saved bool, cancelled bool, err e
 	switch u.step {
 	case stepLLMProvider:
 		return u.handleMenuKey(ev, llmProviderChoices(), nextOnboardStep(u.cfg, stepLLMProvider), stepLLMProvider)
-	case stepOpenAIAuthMode:
-		return u.handleOpenAIAuthModeMenuKey(ev)
-	case stepOpenAICodexLogin:
-		return u.handleOpenAICodexLoginKey(ev)
+	case stepAnthropicAuthMode:
+		return u.handleAnthropicAuthModeMenuKey(ev)
 	case stepLLMModel:
 		return u.handleModelMenuKey(ev)
 	case stepSTTProvider:
@@ -157,47 +146,19 @@ func (u *onboardingUI) handleMenuKey(ev keyEvent, values []string, next onboardS
 	return false, false, nil
 }
 
-func (u *onboardingUI) handleOpenAIAuthModeMenuKey(ev keyEvent) (bool, bool, error) {
-	options := []string{"api_key", "codex"}
+func (u *onboardingUI) handleAnthropicAuthModeMenuKey(ev keyEvent) (bool, bool, error) {
+	options := []string{"api_key", "subscription"}
 	switch ev.code {
 	case keyUp:
 		u.menuIndex = wrapIndex(u.menuIndex-1, len(options))
 	case keyDown:
 		u.menuIndex = wrapIndex(u.menuIndex+1, len(options))
 	case keyEnter:
-		u.cfg.OpenAIAuthMode = options[u.menuIndex]
-		u.setStep(nextOnboardStep(u.cfg, stepOpenAIAuthMode))
+		u.cfg.AnthropicAuthMode = options[u.menuIndex]
+		u.setStep(nextOnboardStep(u.cfg, stepAnthropicAuthMode))
 	case keyLeft:
 		u.setStep(stepLLMProvider)
 		u.menuIndex = selectedProviderIndex(u.cfg.LLMProvider)
-	case keyQuit:
-		return false, true, nil
-	}
-	return false, false, nil
-}
-
-func (u *onboardingUI) handleOpenAICodexLoginKey(ev keyEvent) (bool, bool, error) {
-	options := []string{"launch", "skip", "back"}
-	switch ev.code {
-	case keyUp:
-		u.menuIndex = wrapIndex(u.menuIndex-1, len(options))
-	case keyDown:
-		u.menuIndex = wrapIndex(u.menuIndex+1, len(options))
-	case keyEnter:
-		switch options[u.menuIndex] {
-		case "launch":
-			u.pendingAction = "openai_codex_login"
-			u.setStep(stepLLMModel)
-		case "skip":
-			u.setStep(stepLLMModel)
-		case "back":
-			u.setStep(stepOpenAIAuthMode)
-			u.menuIndex = 1
-			return false, false, nil
-		}
-	case keyLeft:
-		u.setStep(stepOpenAIAuthMode)
-		u.menuIndex = 1
 	case keyQuit:
 		return false, true, nil
 	}
@@ -271,13 +232,13 @@ func (u *onboardingUI) handleReviewKey(ev keyEvent) (bool, bool, error) {
 	case keyDown:
 		u.menuIndex = wrapIndex(u.menuIndex+1, len(u.reviewOptions))
 	case keyLeft:
-		u.setStep(stepRuntimeMemoryWindow)
+		u.setStep(stepRuntimeMaxIterations)
 	case keyEnter:
 		switch u.menuIndex {
 		case 0:
 			return true, false, nil
 		case 1:
-			u.setStep(stepRuntimeMemoryWindow)
+			u.setStep(stepRuntimeMaxIterations)
 		case 2:
 			return false, true, nil
 		}
@@ -307,12 +268,6 @@ func (u *onboardingUI) commitInput() error {
 			return err
 		}
 		u.cfg.MaxIterations = value
-	case stepRuntimeMemoryWindow:
-		value, err := parsePositiveInt(strings.TrimSpace(u.input), "memory window size")
-		if err != nil {
-			return err
-		}
-		u.cfg.MemoryWindowSize = value
 	}
 	return nil
 }
@@ -329,8 +284,6 @@ func (u *onboardingUI) currentInputValue() string {
 		return formatInt64CSV(u.cfg.TelegramAllowedUserIDs)
 	case stepRuntimeMaxIterations:
 		return fmt.Sprintf("%d", u.cfg.MaxIterations)
-	case stepRuntimeMemoryWindow:
-		return fmt.Sprintf("%d", u.cfg.MemoryWindowSize)
 	default:
 		return ""
 	}
@@ -344,7 +297,7 @@ func (u *onboardingUI) consumePendingAction() string {
 
 func (u *onboardingUI) refreshModelOptions() {
 	options, source := resolveModelOptions(u.cfg)
-	u.allModelOptions = append([]llm.ModelOption(nil), options...)
+	u.allModelOptions = append([]ModelOption(nil), options...)
 	u.modelSource = source
 	u.applyModelFilter()
 }
@@ -416,7 +369,7 @@ func renderMenu(options []string, selected int) string {
 	return b.String()
 }
 
-func renderModelMenu(options []llm.ModelOption, selected int) string {
+func renderModelMenu(options []ModelOption, selected int) string {
 	if len(options) == 0 {
 		return "  No models available.\n"
 	}

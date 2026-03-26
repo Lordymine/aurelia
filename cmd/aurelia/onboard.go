@@ -8,7 +8,6 @@ import (
 
 	"github.com/kocar/aurelia/internal/config"
 	"github.com/kocar/aurelia/internal/runtime"
-	"github.com/kocar/aurelia/pkg/llm"
 	"golang.org/x/term"
 )
 
@@ -21,8 +20,7 @@ type onboardStep int
 
 const (
 	stepLLMProvider onboardStep = iota
-	stepOpenAIAuthMode
-	stepOpenAICodexLogin
+	stepAnthropicAuthMode
 	stepLLMKey
 	stepLLMModel
 	stepSTTProvider
@@ -30,7 +28,6 @@ const (
 	stepTelegramToken
 	stepTelegramUsers
 	stepRuntimeMaxIterations
-	stepRuntimeMemoryWindow
 	stepReview
 )
 
@@ -60,8 +57,8 @@ type onboardingUI struct {
 	input           string
 	message         string
 	modelSource     string
-	allModelOptions []llm.ModelOption
-	modelOptions    []llm.ModelOption
+	allModelOptions []ModelOption
+	modelOptions    []ModelOption
 	modelFilter     string
 	modelCapability modelCapabilityFilter
 	reviewOptions   []string
@@ -77,7 +74,7 @@ const (
 	modelCapabilityFree
 )
 
-var llmModelCatalog = llm.ListModels
+var llmModelCatalog = listModels
 
 func runOnboard(stdin io.Reader, stdout io.Writer) error {
 	resolver, err := runtime.New()
@@ -122,18 +119,15 @@ func runOnboardPrompt(stdin io.Reader, stdout io.Writer, resolver *runtime.PathR
 	}
 
 	current.LLMProvider, _ = promptChoice(reader, stdout, "LLM provider", current.LLMProvider, llmProviderChoices())
-	if current.LLMProvider == "openai" {
-		current.OpenAIAuthMode, _ = promptChoice(reader, stdout, "OpenAI auth mode", current.OpenAIAuthMode, []string{"api_key", "codex"})
+	if config.NormalizeProvider(current.LLMProvider) == "anthropic" {
+		current.AnthropicAuthMode, _ = promptChoice(reader, stdout, "Anthropic auth mode", current.AnthropicAuthMode, []string{"api_key", "subscription"})
 	}
 	if err := writef(stdout, "STT provider [%s]: %s\n\n", current.STTProvider, "Groq"); err != nil {
 		return err
 	}
 
-	if usesOpenAICodex(*current) {
-		if err := writef(stdout, "OpenAI auth mode: codex CLI (experimental). Starting device auth now.\n\n"); err != nil {
-			return err
-		}
-		if err := runOpenAIDeviceAuthCommand(stdin, stdout); err != nil {
+	if usesAnthropicSubscription(*current) {
+		if err := writef(stdout, "Anthropic auth mode: subscription (no API key needed).\n\n"); err != nil {
 			return err
 		}
 	} else {
@@ -146,7 +140,6 @@ func runOnboardPrompt(stdin io.Reader, stdout io.Writer, resolver *runtime.PathR
 	current.TelegramBotToken, _ = promptString(reader, stdout, "Telegram bot token", current.TelegramBotToken, true)
 	current.TelegramAllowedUserIDs, _ = promptInt64List(reader, stdout, "Telegram allowed user IDs (comma-separated)", current.TelegramAllowedUserIDs)
 	current.MaxIterations, _ = promptInt(reader, stdout, "Max iterations", current.MaxIterations)
-	current.MemoryWindowSize, _ = promptInt(reader, stdout, "Memory window size", current.MemoryWindowSize)
 
 	current.STTProvider = "groq"
 
@@ -196,21 +189,7 @@ func runOnboardTUI(stdin *os.File, stdout *os.File, resolver *runtime.PathResolv
 			return renderSavedSummary(stdout, resolver, &ui.cfg)
 		}
 		if action := ui.consumePendingAction(); action != "" {
-			switch action {
-			case "openai_codex_login":
-				if err := term.Restore(int(stdin.Fd()), oldState); err != nil {
-					return fmt.Errorf("restore terminal mode: %w", err)
-				}
-				clearScreen(stdout)
-				if err := runOpenAIDeviceAuthCommand(stdin, stdout); err != nil {
-					ui.message = err.Error()
-				}
-				oldState, err = term.MakeRaw(int(stdin.Fd()))
-				if err != nil {
-					return fmt.Errorf("re-enable raw terminal mode: %w", err)
-				}
-				reader = bufio.NewReader(stdin)
-			}
+			_ = action
 		}
 	}
 }
@@ -222,8 +201,8 @@ func newOnboardingUI(cfg config.EditableConfig) *onboardingUI {
 	if cfg.LLMModel == "" {
 		cfg.LLMModel = config.DefaultEditableConfig().LLMModel
 	}
-	if cfg.OpenAIAuthMode == "" {
-		cfg.OpenAIAuthMode = "api_key"
+	if cfg.AnthropicAuthMode == "" {
+		cfg.AnthropicAuthMode = "api_key"
 	}
 	if cfg.STTProvider == "" {
 		cfg.STTProvider = "groq"
@@ -231,8 +210,8 @@ func newOnboardingUI(cfg config.EditableConfig) *onboardingUI {
 	modelOptions, modelSource := resolveModelOptions(cfg)
 	return &onboardingUI{
 		cfg:             cfg,
-		allModelOptions: append([]llm.ModelOption(nil), modelOptions...),
-		modelOptions:    append([]llm.ModelOption(nil), modelOptions...),
+		allModelOptions: append([]ModelOption(nil), modelOptions...),
+		modelOptions:    append([]ModelOption(nil), modelOptions...),
 		modelSource:     modelSource,
 		step:            stepLLMProvider,
 		reviewOptions:   []string{"Save config", "Back", "Cancel"},

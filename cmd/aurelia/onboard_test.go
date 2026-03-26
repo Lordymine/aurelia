@@ -9,7 +9,6 @@ import (
 
 	"github.com/kocar/aurelia/internal/config"
 	"github.com/kocar/aurelia/internal/runtime"
-	"github.com/kocar/aurelia/pkg/llm"
 )
 
 func TestRunOnboard_SavesInteractiveConfig(t *testing.T) {
@@ -24,7 +23,6 @@ func TestRunOnboard_SavesInteractiveConfig(t *testing.T) {
 		"telegram-token",
 		"101,202",
 		"700",
-		"33",
 		"",
 	}, "\n")
 
@@ -42,14 +40,14 @@ func TestRunOnboard_SavesInteractiveConfig(t *testing.T) {
 		t.Fatalf("config.Load() error = %v", err)
 	}
 
-	if cfg.LLMProvider != "kimi" {
-		t.Fatalf("LLMProvider = %q", cfg.LLMProvider)
+	if cfg.DefaultProvider != "kimi" {
+		t.Fatalf("DefaultProvider = %q", cfg.DefaultProvider)
 	}
 	if cfg.STTProvider != "groq" {
 		t.Fatalf("STTProvider = %q", cfg.STTProvider)
 	}
-	if cfg.LLMModel != "kimi-k2-thinking" {
-		t.Fatalf("LLMModel = %q", cfg.LLMModel)
+	if cfg.DefaultModel != "kimi-k2-thinking" {
+		t.Fatalf("DefaultModel = %q", cfg.DefaultModel)
 	}
 	if cfg.TelegramBotToken != "telegram-token" {
 		t.Fatalf("TelegramBotToken = %q", cfg.TelegramBotToken)
@@ -57,17 +55,14 @@ func TestRunOnboard_SavesInteractiveConfig(t *testing.T) {
 	if got, want := cfg.TelegramAllowedUserIDs, []int64{101, 202}; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
 		t.Fatalf("TelegramAllowedUserIDs = %v", got)
 	}
-	if cfg.KimiAPIKey != "kimi-key" {
-		t.Fatalf("KimiAPIKey = %q", cfg.KimiAPIKey)
+	if cfg.ProviderAPIKey("kimi") != "kimi-key" {
+		t.Fatalf("KimiAPIKey = %q", cfg.ProviderAPIKey("kimi"))
 	}
-	if cfg.GroqAPIKey != "groq-key" {
-		t.Fatalf("GroqAPIKey = %q", cfg.GroqAPIKey)
+	if cfg.ProviderAPIKey("groq") != "groq-key" {
+		t.Fatalf("GroqAPIKey = %q", cfg.ProviderAPIKey("groq"))
 	}
 	if cfg.MaxIterations != 700 {
 		t.Fatalf("MaxIterations = %d", cfg.MaxIterations)
-	}
-	if cfg.MemoryWindowSize != 33 {
-		t.Fatalf("MemoryWindowSize = %d", cfg.MemoryWindowSize)
 	}
 	if cfg.DBPath != filepath.Join(tmpDir, "data", "aurelia.db") {
 		t.Fatalf("DBPath = %q", cfg.DBPath)
@@ -98,10 +93,8 @@ func TestRunOnboard_PreservesExistingValuesOnBlankInput(t *testing.T) {
 		OpenRouterAPIKey:       "old-openrouter",
 		ZAIAPIKey:              "old-zai",
 		AlibabaAPIKey:          "old-alibaba",
-		OpenAIAPIKey:           "old-openai",
 		GroqAPIKey:             "old-groq",
 		MaxIterations:          600,
-		MemoryWindowSize:       21,
 	}); err != nil {
 		t.Fatalf("config.SaveEditable() error = %v", err)
 	}
@@ -115,17 +108,25 @@ func TestRunOnboard_PreservesExistingValuesOnBlankInput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("config.Load() error = %v", err)
 	}
-	if cfg.TelegramBotToken != "old-telegram" || cfg.KimiAPIKey != "old-kimi" || cfg.AnthropicAPIKey != "old-anthropic" || cfg.GoogleAPIKey != "old-google" || cfg.KiloAPIKey != "old-kilo" || cfg.OpenRouterAPIKey != "old-openrouter" || cfg.ZAIAPIKey != "old-zai" || cfg.AlibabaAPIKey != "old-alibaba" || cfg.OpenAIAPIKey != "old-openai" || cfg.GroqAPIKey != "old-groq" {
+	if cfg.TelegramBotToken != "old-telegram" ||
+		cfg.ProviderAPIKey("kimi") != "old-kimi" ||
+		cfg.ProviderAPIKey("anthropic") != "old-anthropic" ||
+		cfg.ProviderAPIKey("google") != "old-google" ||
+		cfg.ProviderAPIKey("kilo") != "old-kilo" ||
+		cfg.ProviderAPIKey("openrouter") != "old-openrouter" ||
+		cfg.ProviderAPIKey("zai") != "old-zai" ||
+		cfg.ProviderAPIKey("alibaba") != "old-alibaba" ||
+		cfg.ProviderAPIKey("groq") != "old-groq" {
 		t.Fatalf("expected secrets to be preserved, got %+v", cfg)
 	}
-	if cfg.LLMProvider != "kimi" || cfg.LLMModel != "moonshot-v1-32k" || cfg.STTProvider != "groq" {
-		t.Fatalf("expected providers to be preserved, got llm=%q model=%q stt=%q", cfg.LLMProvider, cfg.LLMModel, cfg.STTProvider)
+	if cfg.DefaultProvider != "kimi" || cfg.DefaultModel != "moonshot-v1-32k" || cfg.STTProvider != "groq" {
+		t.Fatalf("expected providers to be preserved, got llm=%q model=%q stt=%q", cfg.DefaultProvider, cfg.DefaultModel, cfg.STTProvider)
 	}
 	if len(cfg.TelegramAllowedUserIDs) != 1 || cfg.TelegramAllowedUserIDs[0] != 42 {
 		t.Fatalf("expected allowed user IDs to be preserved, got %v", cfg.TelegramAllowedUserIDs)
 	}
-	if cfg.MaxIterations != 600 || cfg.MemoryWindowSize != 21 {
-		t.Fatalf("expected numeric fields to be preserved, got max=%d memory=%d", cfg.MaxIterations, cfg.MemoryWindowSize)
+	if cfg.MaxIterations != 600 {
+		t.Fatalf("expected MaxIterations to be preserved, got %d", cfg.MaxIterations)
 	}
 }
 
@@ -201,7 +202,7 @@ func TestOnboardingUI_MenuFlowAndBack(t *testing.T) {
 func TestOnboardingUI_ModelSelectionPersistsChoice(t *testing.T) {
 	ui := newOnboardingUI(config.DefaultEditableConfig())
 	ui.step = stepLLMModel
-	ui.modelOptions = []llm.ModelOption{
+	ui.modelOptions = []ModelOption{
 		{ID: "kimi-k2-thinking", Name: "Kimi K2 Thinking"},
 		{ID: "moonshot-v1-32k", Name: "Moonshot v1 32K"},
 	}
@@ -271,33 +272,8 @@ func TestLLMProviderChoicesMatchLabels(t *testing.T) {
 	}
 }
 
-func TestOnboardingUI_OpenAICodexSkipsAPIKeyStep(t *testing.T) {
-	ui := newOnboardingUI(config.EditableConfig{
-		LLMProvider:      "openai",
-		LLMModel:         "gpt-5.4",
-		OpenAIAuthMode:   "api_key",
-		MemoryWindowSize: 20,
-		MaxIterations:    500,
-		STTProvider:      "groq",
-	})
-
-	ui.step = stepOpenAIAuthMode
-	ui.menuIndex = 1
-
-	_, _, err := ui.HandleKey(keyEvent{code: keyEnter})
-	if err != nil {
-		t.Fatalf("HandleKey() error = %v", err)
-	}
-	if ui.cfg.OpenAIAuthMode != "codex" {
-		t.Fatalf("OpenAIAuthMode = %q", ui.cfg.OpenAIAuthMode)
-	}
-	if ui.step != stepOpenAICodexLogin {
-		t.Fatalf("step = %v, want %v", ui.step, stepOpenAICodexLogin)
-	}
-}
-
 func TestFilterModelOptions_OpenRouterMatchesProviderAndModel(t *testing.T) {
-	options := []llm.ModelOption{
+	options := []ModelOption{
 		{ID: "openrouter/auto", Name: "OpenRouter Auto"},
 		{ID: "anthropic/claude-sonnet-4", Name: "Claude Sonnet 4"},
 		{ID: "google/gemini-2.5-flash", Name: "Gemini 2.5 Flash"},
@@ -322,12 +298,12 @@ func TestOnboardingUI_OpenRouterModelSearchFiltersResults(t *testing.T) {
 		LLMModel:    "openrouter/auto",
 	})
 	ui.step = stepLLMModel
-	ui.allModelOptions = []llm.ModelOption{
+	ui.allModelOptions = []ModelOption{
 		{ID: "openrouter/auto", Name: "OpenRouter Auto"},
 		{ID: "anthropic/claude-sonnet-4", Name: "Claude Sonnet 4"},
 		{ID: "google/gemini-2.5-flash", Name: "Gemini 2.5 Flash"},
 	}
-	ui.modelOptions = append([]llm.ModelOption(nil), ui.allModelOptions...)
+	ui.modelOptions = append([]ModelOption(nil), ui.allModelOptions...)
 
 	_, _, err := ui.HandleKey(keyEvent{code: keyRune, r: 'a'})
 	if err != nil {
@@ -346,7 +322,7 @@ func TestOnboardingUI_OpenRouterModelSearchFiltersResults(t *testing.T) {
 }
 
 func TestFilterModelOptions_KiloMatchesProviderAndModel(t *testing.T) {
-	options := []llm.ModelOption{
+	options := []ModelOption{
 		{ID: "gpt-5.4", Name: "GPT-5.4 · openai"},
 		{ID: "claude-sonnet-4-6", Name: "Claude Sonnet 4.6 · anthropic"},
 		{ID: "gemini-2.5-pro", Name: "Gemini 2.5 Pro · google"},
@@ -371,12 +347,12 @@ func TestOnboardingUI_KiloModelSearchFiltersResults(t *testing.T) {
 		LLMModel:    "gpt-5.4",
 	})
 	ui.step = stepLLMModel
-	ui.allModelOptions = []llm.ModelOption{
+	ui.allModelOptions = []ModelOption{
 		{ID: "gpt-5.4", Name: "GPT-5.4 · openai"},
 		{ID: "claude-sonnet-4-6", Name: "Claude Sonnet 4.6 · anthropic"},
 		{ID: "gemini-2.5-pro", Name: "Gemini 2.5 Pro · google"},
 	}
-	ui.modelOptions = append([]llm.ModelOption(nil), ui.allModelOptions...)
+	ui.modelOptions = append([]ModelOption(nil), ui.allModelOptions...)
 
 	_, _, err := ui.HandleKey(keyEvent{code: keyRune, r: 'g'})
 	if err != nil {
@@ -395,7 +371,7 @@ func TestOnboardingUI_KiloModelSearchFiltersResults(t *testing.T) {
 }
 
 func TestFilterModelOptions_VisionOnly(t *testing.T) {
-	options := []llm.ModelOption{
+	options := []ModelOption{
 		{ID: "kimi-k2-thinking", Name: "Kimi K2 Thinking"},
 		{ID: "moonshot-v1-vision", Name: "Moonshot Vision", SupportsImageInput: true},
 	}
@@ -412,11 +388,11 @@ func TestOnboardingUI_ModelVisionToggleFiltersResults(t *testing.T) {
 		LLMModel:    "openai/gpt-5.4",
 	})
 	ui.step = stepLLMModel
-	ui.allModelOptions = []llm.ModelOption{
+	ui.allModelOptions = []ModelOption{
 		{ID: "zai/glm-5-turbo", Name: "GLM-5 Turbo"},
 		{ID: "openai/gpt-5.4", Name: "GPT-5.4", SupportsImageInput: true},
 	}
-	ui.modelOptions = append([]llm.ModelOption(nil), ui.allModelOptions...)
+	ui.modelOptions = append([]ModelOption(nil), ui.allModelOptions...)
 
 	_, _, err := ui.HandleKey(keyEvent{code: keyRight})
 	if err != nil {
@@ -436,11 +412,11 @@ func TestOnboardingUI_ModelCapabilityCycleFiltersToolsAndFree(t *testing.T) {
 		LLMModel:    "openrouter/auto",
 	})
 	ui.step = stepLLMModel
-	ui.allModelOptions = []llm.ModelOption{
+	ui.allModelOptions = []ModelOption{
 		{ID: "anthropic/claude-sonnet-4", Name: "Claude Sonnet 4", SupportsImageInput: true, SupportsTools: true},
 		{ID: "meta-llama/llama-free", Name: "Llama Free", IsFree: true},
 	}
-	ui.modelOptions = append([]llm.ModelOption(nil), ui.allModelOptions...)
+	ui.modelOptions = append([]ModelOption(nil), ui.allModelOptions...)
 
 	_, _, err := ui.HandleKey(keyEvent{code: keyRight})
 	if err != nil {

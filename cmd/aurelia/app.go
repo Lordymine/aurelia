@@ -6,42 +6,30 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"strconv"
 	"time"
 
-	"github.com/kocar/aurelia/internal/agent"
+	"gopkg.in/telebot.v3"
+
+	"github.com/kocar/aurelia/internal/agents"
+	"github.com/kocar/aurelia/internal/bridge"
 	"github.com/kocar/aurelia/internal/config"
 	"github.com/kocar/aurelia/internal/cron"
-	"github.com/kocar/aurelia/internal/mcp"
-	"github.com/kocar/aurelia/internal/memory"
-	"github.com/kocar/aurelia/internal/observability"
 	"github.com/kocar/aurelia/internal/persona"
 	"github.com/kocar/aurelia/internal/runtime"
-	"github.com/kocar/aurelia/internal/skill"
+	"github.com/kocar/aurelia/internal/session"
 	"github.com/kocar/aurelia/internal/telegram"
-	"github.com/kocar/aurelia/internal/tools"
-	"github.com/kocar/aurelia/pkg/llm"
 	"github.com/kocar/aurelia/pkg/stt"
-	"gopkg.in/telebot.v3"
 )
 
 type app struct {
-	resolver      *runtime.PathResolver
-	mem           *memory.MemoryManager
-	cronStore     *cron.SQLiteCronStore
-	opsStore      *observability.SQLiteStore
-	mcpManager    *mcp.Manager
-	taskStore     *agent.SQLiteTaskStore
-	llmProvider   closableLLMProvider
-	bot           *telegram.BotController
-	cronScheduler *cron.Scheduler
-	cronCtx       context.Context
-	cronCancel    context.CancelFunc
-}
-
-type closableLLMProvider interface {
-	agent.LLMProvider
-	Close()
+	resolver   *runtime.PathResolver
+	bridge     *bridge.Bridge
+	agents     *agents.Registry
+	cronStore  *cron.SQLiteCronStore
+	bot        *telegram.BotController
+	scheduler  *cron.Scheduler
+	cronCtx    context.Context
+	cronCancel context.CancelFunc
 }
 
 func bootstrapApp() (*app, error) {
@@ -57,21 +45,102 @@ func bootstrapApp() (*app, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load config: %w", err)
 	}
+	setProviderEnv(cfg)
 
-	mem, err := memory.NewMemoryManager(cfg.DBPath, cfg.MemoryWindowSize)
+	br := setupBridge()
+	personaSvc := setupPersona(resolver)
+
+	agentReg, err := agents.Load(resolver.Agents())
 	if err != nil {
-		return nil, fmt.Errorf("initialize memory manager: %w", err)
-	}
-	opsStore, err := observability.NewSQLiteStore(cfg.DBPath)
-	if err != nil {
-		_ = mem.Close()
-		return nil, fmt.Errorf("initialize observability store: %w", err)
+		log.Printf("Warning: failed to load agents registry: %v (continuing without agents)", err)
+		agentReg = nil
 	}
 
+	cronStore, err := cron.NewSQLiteCronStore(resolver.DBPath("cron.db"))
+	if err != nil {
+		return nil, fmt.Errorf("initialize cron store: %w", err)
+	}
+
+	transcriber, err := buildTranscriber(cfg)
+	if err != nil {
+		if closeErr := cronStore.Close(); closeErr != nil {
+			log.Printf("Warning: failed to close cron store: %v", closeErr)
+		}
+		return nil, fmt.Errorf("initialize transcriber: %w", err)
+	}
+
+	cronSvc := cron.NewService(cronStore, nil)
+	cronHandler := telegram.NewCronCommandHandler(cronSvc)
+	exePath, err := os.Executable()
+	if err != nil {
+		log.Printf("Warning: failed to resolve executable path: %v", err)
+	}
+	sessions := session.NewStore()
+	tracker := session.NewTracker()
+
+	br.SetOnDeath(func() {
+		log.Printf("bridge: process died, deactivating all sessions")
+		sessions.DeactivateAll()
+	})
+
+	bot, err := telegram.NewBotController(
+		cfg, br, agentReg, personaSvc, transcriber,
+		cronHandler, resolver.MemoryPersonas(), exePath, sessions, tracker,
+	)
+	if err != nil {
+		if closeErr := cronStore.Close(); closeErr != nil {
+			log.Printf("Warning: failed to close cron store: %v", closeErr)
+		}
+		return nil, fmt.Errorf("initialize telegram bot: %w", err)
+	}
+
+	scheduler, err := setupCronScheduler(cronStore, br, agentReg, personaSvc, bot)
+	if err != nil {
+		if closeErr := cronStore.Close(); closeErr != nil {
+			log.Printf("Warning: failed to close cron store: %v", closeErr)
+		}
+		return nil, fmt.Errorf("initialize cron scheduler: %w", err)
+	}
+
+	cronCtx, cronCancel := context.WithCancel(context.Background())
+
+	return &app{
+		resolver:   resolver,
+		bridge:     br,
+		agents:     agentReg,
+		cronStore:  cronStore,
+		bot:        bot,
+		scheduler:  scheduler,
+		cronCtx:    cronCtx,
+		cronCancel: cronCancel,
+	}, nil
+}
+
+// setupBridge creates the Bridge, ensuring ~/.aurelia/bridge/ is bootstrapped.
+func setupBridge() *bridge.Bridge {
+	home, _ := os.UserHomeDir()
+	aureliBridgeDir := filepath.Join(home, ".aurelia", "bridge")
+	if _, setupErr := bridge.EnsureBridge(aureliBridgeDir, bridge.EmbeddedBundleJS); setupErr != nil {
+		log.Printf("Warning: bridge auto-setup failed: %v", setupErr)
+	}
+	bridgeDir := findBridgeDir()
+	if bridgeDir == "" {
+		bridgeDir = aureliBridgeDir
+	}
+	bundlePath := filepath.Join(bridgeDir, "bundle.js")
+	if _, err := os.Stat(bundlePath); os.IsNotExist(err) {
+		bundlePath = ""
+	}
+	return bridge.New(bridgeDir, bundlePath)
+}
+
+// setupPersona builds the canonical identity service from persona and playbook files.
+func setupPersona(resolver *runtime.PathResolver) *persona.CanonicalIdentityService {
 	personasDir := resolver.MemoryPersonas()
 	memoryDir := resolver.Memory()
 	ownerPlaybookPath := filepath.Join(memoryDir, "OWNER_PLAYBOOK.md")
 	lessonsLearnedPath := filepath.Join(memoryDir, "LESSONS_LEARNED.md")
+
 	cwd, err := os.Getwd()
 	if err != nil {
 		log.Printf("Warning: failed to resolve working directory for project playbook: %v", err)
@@ -81,19 +150,11 @@ func bootstrapApp() (*app, error) {
 		log.Printf("Warning: failed to bootstrap project-local Aurelia directory: %v", err)
 	}
 	var projectPlaybookPath string
-	var projectSkillsDir string
 	if cwd != "" {
 		projectPlaybookPath = filepath.Join(cwd, "docs", "PROJECT_PLAYBOOK.md")
-		projectSkillsDir = runtime.ProjectSkills(cwd)
 	}
-	llmProvider, err := buildLLMProvider(cfg, resolver)
-	if err != nil {
-		_ = opsStore.Close()
-		_ = mem.Close()
-		return nil, fmt.Errorf("initialize llm provider: %w", err)
-	}
-	canonicalService := persona.NewCanonicalIdentityService(
-		mem,
+
+	return persona.NewCanonicalIdentityService(
 		filepath.Join(personasDir, "IDENTITY.md"),
 		filepath.Join(personasDir, "SOUL.md"),
 		filepath.Join(personasDir, "USER.md"),
@@ -101,128 +162,62 @@ func bootstrapApp() (*app, error) {
 		lessonsLearnedPath,
 		projectPlaybookPath,
 	)
-	registry := buildToolRegistry()
+}
 
-	cronStore, err := cron.NewSQLiteCronStore(cfg.DBPath)
-	if err != nil {
-		_ = opsStore.Close()
-		_ = mem.Close()
-		return nil, fmt.Errorf("initialize cron store: %w", err)
+// telegramChatSender adapts a telebot.Bot to the cron.ChatSender interface.
+type telegramChatSender struct {
+	bot *telebot.Bot
+}
+
+func (s *telegramChatSender) Send(chatID int64, text string) error {
+	chat := &telebot.Chat{ID: chatID}
+	return telegram.SendText(s.bot, chat, text)
+}
+
+// setupCronScheduler creates the cron scheduler with Telegram delivery.
+// Returns nil scheduler if agentReg is nil.
+func setupCronScheduler(
+	cronStore *cron.SQLiteCronStore,
+	br *bridge.Bridge,
+	agentReg *agents.Registry,
+	personaSvc *persona.CanonicalIdentityService,
+	bot *telegram.BotController,
+) (*cron.Scheduler, error) {
+	if agentReg == nil {
+		return nil, nil
 	}
 
-	registerScheduleTools(registry, cronStore)
-	mcpManager, err := maybeRegisterMCPTools(cfg, registry)
-	if err != nil {
-		log.Printf("Warning: %v", err)
-	}
-
-	loop := agent.NewLoopWithObserver(llmProvider, registry, cfg.MaxIterations, opsStore)
-	skillLoader := skill.NewLoader(resolver.Skills(), projectSkillsDir)
-	skillRouter := skill.NewRouter(llmProvider)
-	skillExecutor := skill.NewExecutor(loop)
-	skillInstaller := skill.NewInstaller(resolver.Skills(), projectSkillsDir)
-	transcriber, err := buildTranscriber(cfg)
-	if err != nil {
-		_ = cronStore.Close()
-		_ = opsStore.Close()
-		_ = mem.Close()
-		return nil, fmt.Errorf("initialize transcriber: %w", err)
-	}
-
-	installSkillTool := tools.NewInstallSkillTool(skillInstaller)
-	registry.Register(installSkillTool.Definition(), installSkillTool.Execute)
-
-	bot, err := telegram.NewBotController(
-		cfg,
-		registry,
-		mem,
-		skillRouter,
-		skillExecutor,
-		skillLoader,
-		transcriber,
-		canonicalService,
-		personasDir,
-		opsStore,
+	cronRuntime := cron.NewBridgeCronRuntime(
+		&cron.BridgeAdapter{B: br},
+		agentReg,
+		personaSvc,
 	)
-	if err != nil {
-		_ = cronStore.Close()
-		_ = opsStore.Close()
-		_ = mem.Close()
-		return nil, fmt.Errorf("initialize telegram block: %w", err)
+
+	delivery := cron.NewTelegramDelivery(&telegramChatSender{bot: bot.GetBot()})
+	deliverFn := func(ctx context.Context, job cron.CronJob, result *cron.ExecutionResult, execErr error) error {
+		return delivery.Deliver(ctx, job, result, execErr)
 	}
 
-	taskStore, err := agent.NewSQLiteTaskStore(cfg.DBPath + ".teams")
+	notifyingRuntime := cron.NewNotifyingRuntime(cronRuntime, deliverFn)
+	scheduler, err := cron.NewScheduler(cronStore, notifyingRuntime, nil, cron.SchedulerConfig{
+		PollInterval: 15 * time.Second,
+	})
 	if err != nil {
-		_ = cronStore.Close()
-		_ = opsStore.Close()
-		_ = mem.Close()
-		return nil, fmt.Errorf("initialize team task store: %w", err)
-	}
-
-	if err := registerSpawnAgentTool(cfg, registry, llmProvider, bot, taskStore, opsStore); err != nil {
-		_ = taskStore.Close()
-		_ = cronStore.Close()
-		_ = opsStore.Close()
-		_ = mem.Close()
 		return nil, err
 	}
 
-	cronScheduler, cronCtx, cronCancel, err := buildCronScheduler(cronStore, loop, canonicalService, bot)
-	if err != nil {
-		_ = taskStore.Close()
-		_ = cronStore.Close()
-		_ = opsStore.Close()
-		_ = mem.Close()
-		return nil, fmt.Errorf("initialize cron scheduler: %w", err)
-	}
-
-	return &app{
-		resolver:      resolver,
-		mem:           mem,
-		cronStore:     cronStore,
-		opsStore:      opsStore,
-		mcpManager:    mcpManager,
-		taskStore:     taskStore,
-		llmProvider:   llmProvider,
-		bot:           bot,
-		cronScheduler: cronScheduler,
-		cronCtx:       cronCtx,
-		cronCancel:    cronCancel,
-	}, nil
-}
-
-func buildLLMProvider(cfg *config.AppConfig, resolver *runtime.PathResolver) (closableLLMProvider, error) {
-	_ = resolver
-	return llm.BuildProvider(llm.RuntimeConfig{
-		Provider:         cfg.LLMProvider,
-		Model:            cfg.LLMModel,
-		AnthropicAPIKey:  cfg.AnthropicAPIKey,
-		GoogleAPIKey:     cfg.GoogleAPIKey,
-		KiloAPIKey:       cfg.KiloAPIKey,
-		KimiAPIKey:       cfg.KimiAPIKey,
-		OpenRouterAPIKey: cfg.OpenRouterAPIKey,
-		ZAIAPIKey:        cfg.ZAIAPIKey,
-		AlibabaAPIKey:    cfg.AlibabaAPIKey,
-		OpenAIAPIKey:     cfg.OpenAIAPIKey,
-		OpenAIAuthMode:   cfg.OpenAIAuthMode,
-	})
-}
-
-func buildTranscriber(cfg *config.AppConfig) (stt.Transcriber, error) {
-	switch cfg.STTProvider {
-	case "", "groq":
-		return stt.NewGroqTranscriber(cfg.GroqAPIKey), nil
-	default:
-		return nil, fmt.Errorf("unsupported stt provider %q", cfg.STTProvider)
-	}
+	registerScheduledAgents(cronStore, agentReg)
+	return scheduler, nil
 }
 
 func (a *app) start() {
-	go func() {
-		if err := a.cronScheduler.Start(a.cronCtx); err != nil && err != context.Canceled {
-			log.Printf("Warning: cron scheduler stopped with error: %v", err)
-		}
-	}()
+	if a.scheduler != nil {
+		go func() {
+			if err := a.scheduler.Start(a.cronCtx); err != nil && err != context.Canceled {
+				log.Printf("Warning: cron scheduler stopped with error: %v", err)
+			}
+		}()
+	}
 	go a.bot.Start()
 }
 
@@ -231,77 +226,132 @@ func (a *app) shutdown(ctx context.Context) {
 		a.cronCancel()
 	}
 	if a.bot != nil {
-		a.bot.Stop()
+		done := make(chan struct{})
+		go func() {
+			a.bot.Stop()
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-ctx.Done():
+			log.Println("Warning: bot shutdown timed out")
+		}
 	}
-	_ = ctx
 }
 
 func (a *app) close() {
-	if a.taskStore != nil {
-		if err := a.taskStore.Close(); err != nil {
-			log.Printf("Warning: failed to close team task store: %v", err)
-		}
-	}
-	if a.mcpManager != nil {
-		if err := a.mcpManager.Close(); err != nil {
-			log.Printf("Warning: failed to close MCP manager: %v", err)
-		}
+	if a.bridge != nil {
+		a.bridge.Stop()
 	}
 	if a.cronStore != nil {
 		if err := a.cronStore.Close(); err != nil {
 			log.Printf("Warning: failed to close cron store: %v", err)
 		}
 	}
-	if a.opsStore != nil {
-		if err := a.opsStore.Close(); err != nil {
-			log.Printf("Warning: failed to close observability store: %v", err)
+}
+
+// setProviderEnv exports provider credentials as env vars for the Bridge process.
+func setProviderEnv(cfg *config.AppConfig) {
+	provider := cfg.DefaultProvider
+	authMode := cfg.ProviderAuthMode(provider)
+
+	// Subscription mode (Anthropic Max): SDK uses OAuth from ~/.claude/.credentials.json
+	if provider == "anthropic" && authMode == "subscription" {
+		os.Unsetenv("ANTHROPIC_API_KEY")
+		os.Unsetenv("ANTHROPIC_BASE_URL")
+		home, _ := os.UserHomeDir()
+		credPath := filepath.Join(home, ".claude", ".credentials.json")
+		if _, err := os.Stat(credPath); os.IsNotExist(err) {
+			log.Fatalf("Anthropic subscription requires Claude login. Run 'claude login' first.")
+		}
+		return
+	}
+
+	apiKey := cfg.ProviderAPIKey(provider)
+	baseURL := cfg.ProviderBaseURL(provider)
+
+	// Auto-set base URL for known providers if not explicitly configured
+	if baseURL == "" {
+		switch config.NormalizeProvider(provider) {
+		case "kimi":
+			baseURL = "https://api.kimi.com/coding/"
+		case "openrouter":
+			baseURL = "https://openrouter.ai/api/v1"
+		case "zai":
+			baseURL = "https://api.z.ai/api/anthropic"
+		case "alibaba":
+			baseURL = "https://dashscope-intl.aliyuncs.com/apps/anthropic"
 		}
 	}
-	if a.mem != nil {
-		if err := a.mem.Close(); err != nil {
-			log.Printf("Warning: failed to close memory manager: %v", err)
-		}
+
+	if apiKey != "" {
+		os.Setenv("ANTHROPIC_API_KEY", apiKey)
 	}
-	if a.llmProvider != nil {
-		a.llmProvider.Close()
+	if baseURL != "" {
+		os.Setenv("ANTHROPIC_BASE_URL", baseURL)
+		os.Setenv("ENABLE_TOOL_SEARCH", "false")
 	}
 }
 
-func buildCronScheduler(
-	cronStore *cron.SQLiteCronStore,
-	loop *agent.Loop,
-	canonicalService *persona.CanonicalIdentityService,
-	bot *telegram.BotController,
-) (*cron.Scheduler, context.Context, context.CancelFunc, error) {
-	cronPrompt, cronAllowedTools := loadCronPromptConfig(canonicalService)
-	cronRuntime := cron.NewAgentCronRuntimeWithPromptBuilder(
-		&loopExecutorAdapter{loop: loop},
-		cronPrompt,
-		cronAllowedTools,
-		func(ctx context.Context, job cron.CronJob) (string, []string, error) {
-			if canonicalService == nil {
-				return cronPrompt, cronAllowedTools, nil
-			}
-			return canonicalService.BuildPromptForQuery(ctx, job.OwnerUserID, strconv.FormatInt(job.TargetChatID, 10), job.Prompt)
-		},
-	)
-
-	notifyingRuntime := cron.NewNotifyingRuntime(cronRuntime, func(ctx context.Context, job cron.CronJob, output string, execErr error) error {
-		chat := &telebot.Chat{ID: job.TargetChatID}
-		if execErr != nil {
-			return telegram.SendText(bot.GetBot(), chat, "Falha na rotina agendada:\n"+execErr.Error())
-		}
-		return telegram.SendText(bot.GetBot(), chat, output)
-	})
-
-	scheduler, err := cron.NewScheduler(cronStore, notifyingRuntime, nil, cron.SchedulerConfig{
-		PollInterval: time.Minute,
-		Observer:     bot.GetOpsStore(),
-	})
-	if err != nil {
-		return nil, nil, nil, err
+// findBridgeDir locates the bridge/ directory containing bundle.js or index.ts.
+func findBridgeDir() string {
+	home, _ := os.UserHomeDir()
+	candidates := []string{
+		"bridge",                                          // relative to cwd (development)
+		filepath.Join(filepath.Dir(os.Args[0]), "bridge"), // next to executable
+		filepath.Join(home, ".aurelia", "bridge"),          // user data dir
 	}
+	for _, c := range candidates {
+		if _, err := os.Stat(filepath.Join(c, "bundle.js")); err == nil {
+			return c
+		}
+		if _, err := os.Stat(filepath.Join(c, "index.ts")); err == nil {
+			return c
+		}
+	}
+	return "" // not found — triggers auto-setup
+}
 
-	cronCtx, cancel := context.WithCancel(context.Background())
-	return scheduler, cronCtx, cancel, nil
+func buildTranscriber(cfg *config.AppConfig) (stt.Transcriber, error) {
+	switch cfg.STTProvider {
+	case "", "groq":
+		return stt.NewGroqTranscriber(cfg.ProviderAPIKey("groq")), nil
+	default:
+		return nil, fmt.Errorf("unsupported stt provider %q", cfg.STTProvider)
+	}
+}
+
+// registerScheduledAgents syncs agent schedules into the cron store.
+// Uses a deterministic job ID derived from agent name so that restarts
+// skip agents that already have a job registered (idempotent).
+func registerScheduledAgents(store *cron.SQLiteCronStore, reg *agents.Registry) {
+	if reg == nil {
+		return
+	}
+	svc := cron.NewService(store, nil)
+	for _, a := range reg.Scheduled() {
+		jobID := "scheduled-agent-" + a.Name
+
+		// Skip if a job with this ID already exists.
+		existing, err := store.GetJob(context.Background(), jobID)
+		if err != nil {
+			log.Printf("Warning: failed to check existing job for agent %q: %v", a.Name, err)
+			continue
+		}
+		if existing != nil {
+			log.Printf("Scheduled agent %q already registered (job %s), skipping", a.Name, jobID)
+			continue
+		}
+
+		_, err = svc.CreateJob(context.Background(), cron.CronJob{
+			ID:           jobID,
+			AgentName:    a.Name,
+			ScheduleType: "cron",
+			CronExpr:     a.Schedule,
+			Prompt:       a.Prompt,
+		})
+		if err != nil {
+			log.Printf("Warning: failed to register scheduled agent %q: %v", a.Name, err)
+		}
+	}
 }

@@ -2,16 +2,18 @@ package cron
 
 import (
 	"context"
+	"database/sql"
 	"time"
 
-	"github.com/kocar/aurelia/internal/agent"
-	"github.com/kocar/aurelia/internal/observability"
+	"github.com/kocar/aurelia/internal/bridge"
 )
 
+// CronJob represents a scheduled job.
 type CronJob struct {
 	ID           string
 	OwnerUserID  string
 	TargetChatID int64
+	AgentName    string // agent from registry to execute this job
 	ScheduleType string
 	CronExpr     string
 	RunAt        *time.Time
@@ -25,6 +27,7 @@ type CronJob struct {
 	UpdatedAt    time.Time
 }
 
+// CronExecution records the result of a job run.
 type CronExecution struct {
 	ID            string
 	JobID         string
@@ -33,27 +36,46 @@ type CronExecution struct {
 	Status        string
 	OutputSummary string
 	ErrorMessage  string
+	SessionID     string
+	CostUSD       float64
+	TokensUsed    int
 }
 
+// ExecutionResult holds the output and metadata from a job execution.
+type ExecutionResult struct {
+	Output    string
+	SessionID string
+	CostUSD   float64
+	NumTurns  int
+}
+
+// Store persists cron jobs and executions.
 type Store interface {
 	CreateJob(ctx context.Context, job CronJob) error
 	UpdateJob(ctx context.Context, job CronJob) error
 	DeleteJob(ctx context.Context, jobID string) error
 	GetJob(ctx context.Context, jobID string) (*CronJob, error)
+	ResolveJobID(ctx context.Context, prefix string) (string, error)
 	ListJobsByChat(ctx context.Context, chatID int64) ([]CronJob, error)
 	ListDueJobs(ctx context.Context, now time.Time, limit int) ([]CronJob, error)
 	RecordExecution(ctx context.Context, exec CronExecution) error
+	RecordExecutionTx(ctx context.Context, tx *sql.Tx, exec CronExecution) error
+	UpdateJobTx(ctx context.Context, tx *sql.Tx, job CronJob) error
+	WithTx(ctx context.Context, fn func(tx *sql.Tx) error) error
 	ListExecutionsByJob(ctx context.Context, jobID string) ([]CronExecution, error)
 }
 
-type AgentExecutor interface {
-	Execute(ctx context.Context, systemPrompt string, history []agent.Message, allowedTools []string) ([]agent.Message, string, error)
+// BridgeExecutor is the interface for executing a request via the Claude Code bridge.
+type BridgeExecutor interface {
+	Execute(ctx context.Context, req bridge.Request) (*bridge.Event, error)
 }
 
+// Runtime executes a cron job and returns its result.
 type Runtime interface {
-	ExecuteJob(ctx context.Context, job CronJob) (string, error)
+	ExecuteJob(ctx context.Context, job CronJob) (*ExecutionResult, error)
 }
 
+// Clock abstracts time for testing.
 type Clock interface {
 	Now() time.Time
 }
@@ -64,7 +86,7 @@ func (realClock) Now() time.Time {
 	return time.Now().UTC()
 }
 
+// SchedulerConfig configures the cron scheduler.
 type SchedulerConfig struct {
 	PollInterval time.Duration
-	Observer     observability.Recorder
 }

@@ -1,343 +1,310 @@
-package e2e_test
+package e2e
 
 import (
 	"context"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
-	"time"
 
-	"github.com/kocar/aurelia/internal/agent"
+	"github.com/kocar/aurelia/internal/agents"
 	"github.com/kocar/aurelia/internal/cron"
 	"github.com/kocar/aurelia/internal/memory"
 	"github.com/kocar/aurelia/internal/persona"
-	"github.com/kocar/aurelia/internal/tools"
 )
 
-type scriptedLLM struct {
-	mu      sync.Mutex
-	calls   int
-	handler func(systemPrompt string, history []agent.Message, tools []agent.Tool) (*agent.ModelResponse, error)
-}
-
-func (s *scriptedLLM) GenerateContent(ctx context.Context, systemPrompt string, history []agent.Message, defs []agent.Tool) (*agent.ModelResponse, error) {
-	s.mu.Lock()
-	s.calls++
-	s.mu.Unlock()
-	return s.handler(systemPrompt, history, defs)
-}
-
-type queuedLLM struct {
-	mu        sync.Mutex
-	responses []*agent.ModelResponse
-	errors    []error
-}
-
-func (q *queuedLLM) GenerateContent(ctx context.Context, systemPrompt string, history []agent.Message, tools []agent.Tool) (*agent.ModelResponse, error) {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-
-	if len(q.errors) > 0 {
-		err := q.errors[0]
-		q.errors = q.errors[1:]
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	if len(q.responses) == 0 {
-		return &agent.ModelResponse{Content: "ok"}, nil
-	}
-
-	resp := q.responses[0]
-	q.responses = q.responses[1:]
-	return resp, nil
-}
-
-type loopExecutorAdapter struct {
-	loop *agent.Loop
-}
-
-func (a *loopExecutorAdapter) Execute(ctx context.Context, systemPrompt string, history []agent.Message, allowedTools []string) ([]agent.Message, string, error) {
-	return a.loop.Run(ctx, systemPrompt, history, allowedTools)
-}
-
-func TestE2E_PersonaLoopWithRealTools(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	mem, canonical := newCanonicalServiceForE2E(t)
-
-	if err := canonical.ApplyFacts(ctx, "42", map[string]memory.Fact{
-		"user.name":                      {Scope: "user", EntityID: "42", Key: "user.name", Value: "Rafael", Source: "bootstrap"},
-		"user.preference.response_style": {Scope: "user", EntityID: "42", Key: "user.preference.response_style", Value: "direto", Source: "conversation"},
-		"project.memory.strategy":        {Scope: "project", EntityID: "default", Key: "project.memory.strategy", Value: "sqlite + facts + notes", Source: "conversation"},
-	}); err != nil {
-		t.Fatalf("ApplyFacts() error = %v", err)
-	}
-	if err := mem.AddNote(ctx, memory.Note{
-		ConversationID: "42",
-		Topic:          "architecture",
-		Kind:           "decision",
-		Summary:        "Manter o monolito modular com tools locais.",
-		Importance:     9,
-		Source:         "conversation",
-	}); err != nil {
-		t.Fatalf("AddNote() error = %v", err)
-	}
-
-	prompt, allowedTools, err := canonical.BuildPromptForQuery(ctx, "42", "42", "verifique o workspace local")
-	if err != nil {
-		t.Fatalf("BuildPromptForQuery() error = %v", err)
-	}
-
-	workspace := t.TempDir()
-	targetFile := filepath.Join(workspace, "hello.txt")
-	if err := os.WriteFile(targetFile, []byte("hello e2e"), 0o644); err != nil {
-		t.Fatalf("WriteFile(%s) error = %v", targetFile, err)
-	}
-
-	llm := &scriptedLLM{
-		handler: func(systemPrompt string, history []agent.Message, defs []agent.Tool) (*agent.ModelResponse, error) {
-			if len(history) == 1 {
-				if !strings.Contains(systemPrompt, "Nome canonico do usuario: Rafael") {
-					t.Fatalf("expected canonical user name in prompt, got %q", systemPrompt)
-				}
-				if !strings.Contains(systemPrompt, "# CANONICAL IDENTITY") {
-					t.Fatalf("expected canonical identity block in prompt, got %q", systemPrompt)
-				}
-				return &agent.ModelResponse{
-					Content: "Vou verificar o arquivo local.",
-					ToolCalls: []agent.ToolCall{
-						{
-							ID:   "call-1",
-							Name: "run_command",
-							Arguments: map[string]interface{}{
-								"command": "Get-Content hello.txt",
-								"workdir": workspace,
-							},
-						},
-					},
-				}, nil
-			}
-
-			toolOutput := history[len(history)-1].Content
-			if !strings.Contains(toolOutput, "hello e2e") {
-				t.Fatalf("expected run_command output in history, got %q", toolOutput)
-			}
-
-			return &agent.ModelResponse{
-				Content: "Verificacao concluida: o arquivo hello.txt contem `hello e2e`.",
-			}, nil
-		},
-	}
-
-	registry := agent.NewToolRegistry()
-	registry.Register(agent.Tool{Name: "read_file"}, tools.ReadFileHandler)
-	registry.Register(agent.Tool{Name: "list_dir"}, tools.ListDirHandler)
-	registry.Register(agent.Tool{Name: "run_command"}, tools.RunCommandHandler)
-
-	loop := agent.NewLoop(llm, registry, 4)
-	history, answer, err := loop.Run(ctx, prompt, []agent.Message{{Role: "user", Content: "verifique o workspace local"}}, allowedTools)
-	if err != nil {
-		t.Fatalf("Loop.Run() error = %v", err)
-	}
-	if !strings.Contains(answer, "hello e2e") {
-		t.Fatalf("expected final answer to contain tool observation, got %q", answer)
-	}
-	if len(history) < 3 || history[len(history)-2].Role != "tool" {
-		t.Fatalf("expected tool observation in loop history, got %#v", history)
-	}
-}
-
-func TestE2E_MasterTeamRecoveryFlow(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	store, err := agent.NewSQLiteTaskStore(filepath.Join(t.TempDir(), "teams.db"))
-	if err != nil {
-		t.Fatalf("NewSQLiteTaskStore() error = %v", err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-
-	manager, err := agent.NewTeamManager(store)
-	if err != nil {
-		t.Fatalf("NewTeamManager() error = %v", err)
-	}
-
-	llm := &queuedLLM{
-		errors: []error{context.DeadlineExceeded, nil},
-		responses: []*agent.ModelResponse{
-			{Content: "recovery completed"},
-		},
-	}
-
-	notifications := make(chan string, 8)
-	service, err := agent.NewMasterTeamService(manager, llm, agent.NewToolRegistry(), 3, func(teamKey string, message string) {
-		notifications <- message
-	})
-	if err != nil {
-		t.Fatalf("NewMasterTeamService() error = %v", err)
-	}
-
-	if _, err := service.Spawn(ctx, "conversation-e2e", "user-e2e", "reviewer", "Reviews work", "analyze and recover if needed"); err != nil {
-		t.Fatalf("Spawn() error = %v", err)
-	}
-
-	var sawFailure bool
-	var sawFinal bool
-	deadline := time.After(10 * time.Second)
-	for !sawFailure || !sawFinal {
-		select {
-		case msg := <-notifications:
-			if strings.Contains(strings.ToLower(msg), "falhou") {
-				sawFailure = true
-			}
-			if strings.Contains(strings.ToLower(msg), "consolidei o que saiu deste run") && strings.Contains(msg, "recovery completed") {
-				sawFinal = true
-			}
-		case <-deadline:
-			t.Fatalf("expected both failure and final recovery notification, got failure=%v final=%v", sawFailure, sawFinal)
-		}
-	}
-
-	snapshot, err := service.BuildExecutionStatusSnapshot(ctx, "conversation-e2e", "")
-	if err != nil {
-		t.Fatalf("BuildExecutionStatusSnapshot() error = %v", err)
-	}
-	if snapshot.Completed == 0 {
-		t.Fatalf("expected completed execution snapshot after recovery, got %#v", snapshot)
-	}
-}
-
-func TestE2E_CronScheduleLifecycle(t *testing.T) {
-	t.Parallel()
-
-	ctx := context.Background()
-	store, err := cron.NewSQLiteCronStore(filepath.Join(t.TempDir(), "cron.db"))
-	if err != nil {
-		t.Fatalf("NewSQLiteCronStore() error = %v", err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-
-	service := cron.NewService(store, nil)
-	createTool := tools.NewCreateScheduleTool(service)
-
-	workspace := t.TempDir()
-	llm := &scriptedLLM{
-		handler: func(systemPrompt string, history []agent.Message, defs []agent.Tool) (*agent.ModelResponse, error) {
-			if len(history) == 1 {
-				return &agent.ModelResponse{
-					Content: "Executando rotina agendada.",
-					ToolCalls: []agent.ToolCall{
-						{
-							ID:   "cron-call-1",
-							Name: "run_command",
-							Arguments: map[string]interface{}{
-								"command": "Write-Output 'rotina executada'",
-								"workdir": workspace,
-							},
-						},
-					},
-				}, nil
-			}
-
-			if got := history[len(history)-1].Content; !strings.Contains(got, "rotina executada") {
-				t.Fatalf("expected cron tool output in history, got %q", got)
-			}
-			return &agent.ModelResponse{Content: "Resumo da rotina: rotina executada."}, nil
-		},
-	}
-
-	registry := agent.NewToolRegistry()
-	registry.Register(agent.Tool{Name: "run_command"}, tools.RunCommandHandler)
-	loop := agent.NewLoop(llm, registry, 4)
-	runtime := cron.NewAgentCronRuntime(&loopExecutorAdapter{loop: loop}, "cron system prompt", []string{"run_command"})
-	scheduler, err := cron.NewScheduler(store, runtime, nil, cron.SchedulerConfig{PollInterval: time.Millisecond})
-	if err != nil {
-		t.Fatalf("NewScheduler() error = %v", err)
-	}
-
-	runAt := time.Now().UTC().Add(-1 * time.Minute).Format(time.RFC3339)
-	createCtx := agent.WithTeamContext(ctx, "12345", "user-cron")
-	if _, err := createTool.Execute(createCtx, map[string]interface{}{
-		"schedule_type": "once",
-		"run_at":        runAt,
-		"prompt":        "Execute a rotina e traga um resumo",
-	}); err != nil {
-		t.Fatalf("createTool.Execute() error = %v", err)
-	}
-
-	jobs, err := service.ListJobs(ctx, 12345)
-	if err != nil {
-		t.Fatalf("ListJobs() error = %v", err)
-	}
-	if len(jobs) != 1 {
-		t.Fatalf("expected one created cron job, got %d", len(jobs))
-	}
-
-	processed, err := scheduler.RunDueJobs(ctx)
-	if err != nil {
-		t.Fatalf("RunDueJobs() error = %v", err)
-	}
-	if processed != 1 {
-		t.Fatalf("expected one due cron job to be processed, got %d", processed)
-	}
-
-	executions, err := store.ListExecutionsByJob(ctx, jobs[0].ID)
-	if err != nil {
-		t.Fatalf("ListExecutionsByJob() error = %v", err)
-	}
-	if len(executions) != 1 {
-		t.Fatalf("expected one cron execution record, got %d", len(executions))
-	}
-	if executions[0].Status != "success" || !strings.Contains(executions[0].OutputSummary, "rotina executada") {
-		t.Fatalf("unexpected execution record: %#v", executions[0])
-	}
-
-	job, err := store.GetJob(ctx, jobs[0].ID)
-	if err != nil {
-		t.Fatalf("GetJob() error = %v", err)
-	}
-	if job == nil || job.Active {
-		t.Fatalf("expected once job to be deactivated after execution, got %#v", job)
-	}
-}
-
-func newCanonicalServiceForE2E(t *testing.T) (*memory.MemoryManager, *persona.CanonicalIdentityService) {
-	t.Helper()
-
-	mem, err := memory.NewMemoryManager(filepath.Join(t.TempDir(), "e2e-memory.db"), 8)
-	if err != nil {
-		t.Fatalf("NewMemoryManager() error = %v", err)
-	}
-	t.Cleanup(func() { _ = mem.Close() })
-
+func TestWiring_AllComponentsInitialize(t *testing.T) {
 	dir := t.TempDir()
+
+	// Create persona files.
 	identityPath := filepath.Join(dir, "IDENTITY.md")
 	soulPath := filepath.Join(dir, "SOUL.md")
 	userPath := filepath.Join(dir, "USER.md")
 
-	identityContent := `---
-name: "Lex"
-role: "Team Lead"
-memory_window_size: 10
-tools:
-  - read_file
-  - list_dir
----
-IDENTITY_BODY`
-	if err := os.WriteFile(identityPath, []byte(identityContent), 0o644); err != nil {
-		t.Fatalf("WriteFile(%s) error = %v", identityPath, err)
+	identityContent := "---\nname: \"Aurelia\"\nrole: \"AI Assistant\"\n---\nYou are Aurelia, an AI operating system."
+	if err := os.WriteFile(identityPath, []byte(identityContent), 0644); err != nil {
+		t.Fatal(err)
 	}
-	if err := os.WriteFile(soulPath, []byte("# Soul\nBase.\n"), 0o644); err != nil {
-		t.Fatalf("WriteFile(%s) error = %v", soulPath, err)
+	if err := os.WriteFile(soulPath, []byte("You are helpful and thoughtful."), 0644); err != nil {
+		t.Fatal(err)
 	}
-	if err := os.WriteFile(userPath, []byte("# User\nNome: Nao definido\nFuso horario: Relativo a sua localidade.\n"), 0o644); err != nil {
-		t.Fatalf("WriteFile(%s) error = %v", userPath, err)
+	if err := os.WriteFile(userPath, []byte("Nome: Developer\nThe user is a developer."), 0644); err != nil {
+		t.Fatal(err)
 	}
 
-	return mem, persona.NewCanonicalIdentityService(mem, identityPath, soulPath, userPath, "", "", "")
+	// Create agent file.
+	agentsDir := filepath.Join(dir, "agents")
+	if err := os.MkdirAll(agentsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	agentContent := "---\nname: helper\ndescription: General helper\nmodel: claude-sonnet-4-6\n---\n\nYou help with general tasks."
+	if err := os.WriteFile(filepath.Join(agentsDir, "helper.md"), []byte(agentContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Load components.
+	personaSvc := persona.NewCanonicalIdentityService(identityPath, soulPath, userPath, "", "", "")
+
+	agentReg, err := agents.Load(agentsDir)
+	if err != nil {
+		t.Fatalf("agents.Load() error = %v", err)
+	}
+
+	mockEmbedder := memory.NewMockEmbedder(64)
+	memStore, err := memory.NewStore(":memory:", mockEmbedder)
+	if err != nil {
+		t.Fatalf("memory.NewStore() error = %v", err)
+	}
+	defer memStore.Close()
+
+	// Verify persona builds prompt.
+	prompt, err := personaSvc.BuildPrompt()
+	if err != nil {
+		t.Fatalf("BuildPrompt() error = %v", err)
+	}
+	if !strings.Contains(prompt, "Aurelia") {
+		t.Fatalf("expected prompt to contain 'Aurelia', got %q", prompt)
+	}
+
+	// Verify agent registry works.
+	agent := agentReg.Get("helper")
+	if agent == nil {
+		t.Fatal("expected agent 'helper' to exist")
+	}
+	if agent.Model != "claude-sonnet-4-6" {
+		t.Fatalf("expected model 'claude-sonnet-4-6', got %q", agent.Model)
+	}
+
+	// Verify memory save + search.
+	ctx := context.Background()
+	if err := memStore.Save(ctx, "test memory content", "fact", "helper"); err != nil {
+		t.Fatalf("memory.Save() error = %v", err)
+	}
+
+	results, err := memStore.Search(ctx, "test memory", 1)
+	if err != nil {
+		t.Fatalf("memory.Search() error = %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 search result, got %d", len(results))
+	}
+
+	// Verify memory injection.
+	memCtx, err := memStore.Inject(ctx, "test memory", 5)
+	if err != nil {
+		t.Fatalf("memory.Inject() error = %v", err)
+	}
+	if !strings.Contains(memCtx, "test memory content") {
+		t.Fatalf("expected injected context to contain 'test memory content', got %q", memCtx)
+	}
+
+	// Verify full system prompt can be assembled.
+	fullPrompt := prompt + "\n\n" + agent.Prompt + "\n\n" + memCtx
+	if !strings.Contains(fullPrompt, "Aurelia") {
+		t.Fatal("full prompt missing persona identity")
+	}
+	if !strings.Contains(fullPrompt, "general tasks") {
+		t.Fatal("full prompt missing agent prompt")
+	}
+	if !strings.Contains(fullPrompt, "test memory content") {
+		t.Fatal("full prompt missing injected memory")
+	}
+}
+
+func TestRouting_BuildsCorrectPrompt(t *testing.T) {
+	dir := t.TempDir()
+
+	// Create two agents.
+	agentsDir := filepath.Join(dir, "agents")
+	if err := os.MkdirAll(agentsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	helperContent := "---\nname: helper\ndescription: General helper\nmodel: claude-sonnet-4-6\n---\n\nYou help with general tasks."
+	if err := os.WriteFile(filepath.Join(agentsDir, "helper.md"), []byte(helperContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	codeContent := "---\nname: coder\ndescription: Code assistant\nmodel: claude-sonnet-4-6\n---\n\nYou write clean code."
+	if err := os.WriteFile(filepath.Join(agentsDir, "coder.md"), []byte(codeContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	reg, err := agents.Load(agentsDir)
+	if err != nil {
+		t.Fatalf("agents.Load() error = %v", err)
+	}
+
+	// Route "@helper analyze this" -> helper agent.
+	agent := reg.Route("@helper analyze this")
+	if agent == nil {
+		t.Fatal("expected routing to match 'helper'")
+	}
+	if agent.Name != "helper" {
+		t.Fatalf("expected agent 'helper', got %q", agent.Name)
+	}
+
+	// Route "@coder fix the bug" -> coder agent.
+	agent = reg.Route("@coder fix the bug")
+	if agent == nil {
+		t.Fatal("expected routing to match 'coder'")
+	}
+	if agent.Name != "coder" {
+		t.Fatalf("expected agent 'coder', got %q", agent.Name)
+	}
+
+	// No match for plain messages.
+	agent = reg.Route("just a normal message")
+	if agent != nil {
+		t.Fatalf("expected no routing match, got %q", agent.Name)
+	}
+
+	// Build system prompt with persona + routed agent + memory.
+	identityPath := filepath.Join(dir, "IDENTITY.md")
+	soulPath := filepath.Join(dir, "SOUL.md")
+	userPath := filepath.Join(dir, "USER.md")
+
+	if err := os.WriteFile(identityPath, []byte("---\nname: \"Aurelia\"\nrole: \"OS\"\n---\nCore identity."), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(soulPath, []byte("Soul values."), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(userPath, []byte("Nome: Dev\nUser context."), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	personaSvc := persona.NewCanonicalIdentityService(identityPath, soulPath, userPath, "", "", "")
+	personaPrompt, err := personaSvc.BuildPrompt()
+	if err != nil {
+		t.Fatalf("BuildPrompt() error = %v", err)
+	}
+
+	routed := reg.Route("@helper analyze this")
+	if routed == nil {
+		t.Fatal("expected routing match")
+	}
+
+	mockEmbedder := memory.NewMockEmbedder(64)
+	memStore, err := memory.NewStore(":memory:", mockEmbedder)
+	if err != nil {
+		t.Fatalf("memory.NewStore() error = %v", err)
+	}
+	defer memStore.Close()
+
+	ctx := context.Background()
+	if err := memStore.Save(ctx, "user prefers Go", "preference", "helper"); err != nil {
+		t.Fatalf("memory.Save() error = %v", err)
+	}
+
+	memCtx, err := memStore.Inject(ctx, "analyze", 5)
+	if err != nil {
+		t.Fatalf("memory.Inject() error = %v", err)
+	}
+
+	fullPrompt := personaPrompt + "\n\n" + routed.Prompt + "\n\n" + memCtx
+	if !strings.Contains(fullPrompt, "Aurelia") {
+		t.Fatal("full prompt missing persona")
+	}
+	if !strings.Contains(fullPrompt, "general tasks") {
+		t.Fatal("full prompt missing agent instructions")
+	}
+	if !strings.Contains(fullPrompt, "user prefers Go") {
+		t.Fatal("full prompt missing memory context")
+	}
+}
+
+func TestCron_ScheduledAgentsRegistered(t *testing.T) {
+	dir := t.TempDir()
+	agentsDir := filepath.Join(dir, "agents")
+	if err := os.MkdirAll(agentsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Agent with schedule.
+	scheduledContent := "---\nname: reporter\ndescription: Daily report\nmodel: claude-sonnet-4-6\nschedule: \"0 9 * * *\"\n---\n\nGenerate daily report."
+	if err := os.WriteFile(filepath.Join(agentsDir, "reporter.md"), []byte(scheduledContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Agent without schedule.
+	normalContent := "---\nname: helper\ndescription: General helper\nmodel: claude-sonnet-4-6\n---\n\nYou help."
+	if err := os.WriteFile(filepath.Join(agentsDir, "helper.md"), []byte(normalContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	reg, err := agents.Load(agentsDir)
+	if err != nil {
+		t.Fatalf("agents.Load() error = %v", err)
+	}
+
+	// Only the scheduled agent should appear.
+	scheduled := reg.Scheduled()
+	if len(scheduled) != 1 {
+		t.Fatalf("expected 1 scheduled agent, got %d", len(scheduled))
+	}
+	if scheduled[0].Name != "reporter" {
+		t.Fatalf("expected scheduled agent 'reporter', got %q", scheduled[0].Name)
+	}
+	if scheduled[0].Schedule != "0 9 * * *" {
+		t.Fatalf("expected schedule '0 9 * * *', got %q", scheduled[0].Schedule)
+	}
+
+	// Verify the cron store can accept a job derived from this agent.
+	cronDBPath := filepath.Join(dir, "cron.db")
+	cronStore, err := cron.NewSQLiteCronStore(cronDBPath)
+	if err != nil {
+		t.Fatalf("NewSQLiteCronStore() error = %v", err)
+	}
+	defer cronStore.Close()
+
+	ctx := context.Background()
+	job := cron.CronJob{
+		ID:           "job-1",
+		OwnerUserID:  "user-1",
+		TargetChatID: 123,
+		AgentName:    scheduled[0].Name,
+		ScheduleType: "cron",
+		CronExpr:     scheduled[0].Schedule,
+		Prompt:       scheduled[0].Prompt,
+		Active:       true,
+	}
+
+	if err := cronStore.CreateJob(ctx, job); err != nil {
+		t.Fatalf("CreateJob() error = %v", err)
+	}
+
+	stored, err := cronStore.GetJob(ctx, "job-1")
+	if err != nil {
+		t.Fatalf("GetJob() error = %v", err)
+	}
+	if stored == nil {
+		t.Fatal("expected stored job, got nil")
+	}
+	if stored.CronExpr != "0 9 * * *" {
+		t.Fatalf("expected cron expr '0 9 * * *', got %q", stored.CronExpr)
+	}
+	if stored.Prompt != "Generate daily report." {
+		t.Fatalf("expected prompt 'Generate daily report.', got %q", stored.Prompt)
+	}
+}
+
+func TestBridge_ProtocolPing(t *testing.T) {
+	// Find bridge directory relative to test file.
+	// The bridge dir is at the project root under "bridge/".
+	bridgeDir := filepath.Join("..", "bridge")
+
+	// Verify bridge dir exists before attempting ping.
+	if _, err := os.Stat(bridgeDir); os.IsNotExist(err) {
+		t.Skipf("bridge directory not found at %s", bridgeDir)
+	}
+
+	// Import bridge inline to avoid import cycle concerns - we use it directly.
+	// The bridge.Ping() spawns npx tsx, which requires Node.js.
+	// Skip gracefully if the environment doesn't have it.
+	br := newBridgeForTest(bridgeDir)
+	ctx := context.Background()
+	if err := br.Ping(ctx); err != nil {
+		t.Skipf("bridge not available (npx/tsx not installed or bridge not built): %v", err)
+	}
 }

@@ -2,23 +2,27 @@ package cron
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
-	"strconv"
+	"log"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/kocar/aurelia/internal/agent"
-	"github.com/kocar/aurelia/internal/observability"
+	robfigcron "github.com/robfig/cron/v3"
 )
 
+// Scheduler polls for due cron jobs and executes them.
 type Scheduler struct {
 	store   Store
 	runtime Runtime
 	clock   Clock
 	config  SchedulerConfig
+	running sync.Map // jobID → struct{} to prevent concurrent execution
 }
 
+// NewScheduler creates a cron scheduler.
 func NewScheduler(store Store, runtime Runtime, clock Clock, config SchedulerConfig) (*Scheduler, error) {
 	if store == nil {
 		return nil, fmt.Errorf("cron store is required")
@@ -40,6 +44,7 @@ func NewScheduler(store Store, runtime Runtime, clock Clock, config SchedulerCon
 	}, nil
 }
 
+// RunDueJobs executes all jobs that are due.
 func (s *Scheduler) RunDueJobs(ctx context.Context) (int, error) {
 	now := s.clock.Now().UTC()
 	jobs, err := s.store.ListDueJobs(ctx, now, 50)
@@ -57,6 +62,7 @@ func (s *Scheduler) RunDueJobs(ctx context.Context) (int, error) {
 	return processed, nil
 }
 
+// Start begins the scheduler polling loop.
 func (s *Scheduler) Start(ctx context.Context) error {
 	ticker := time.NewTicker(s.config.PollInterval)
 	defer ticker.Stop()
@@ -75,20 +81,29 @@ func (s *Scheduler) Start(ctx context.Context) error {
 }
 
 func (s *Scheduler) runSingleJob(ctx context.Context, now time.Time, job CronJob) error {
+	if _, loaded := s.running.LoadOrStore(job.ID, struct{}{}); loaded {
+		return nil // already running
+	}
+	defer s.running.Delete(job.ID)
+
 	startedAt := now
-	runCtx := agent.WithRunContext(ctx, "cron:"+job.ID+":"+startedAt.Format(time.RFC3339))
-	observability.Log("info", "cron.scheduler", "executing cron job", observability.MergeFields(agent.ContextFields(runCtx), map[string]string{
-		"job_id": job.ID,
-	}))
-	output, runErr := s.runtime.ExecuteJob(runCtx, job)
+	log.Printf("cron.scheduler: executing job %s", job.ID)
+
+	result, runErr := s.runtime.ExecuteJob(ctx, job)
 	finishedAt := s.clock.Now().UTC()
-	duration := finishedAt.Sub(startedAt)
 
 	exec := CronExecution{
 		ID:         uuid.NewString(),
 		JobID:      job.ID,
 		StartedAt:  startedAt,
 		FinishedAt: &finishedAt,
+	}
+
+	if result != nil {
+		exec.OutputSummary = result.Output
+		exec.SessionID = result.SessionID
+		exec.CostUSD = result.CostUSD
+		exec.TokensUsed = result.NumTurns
 	}
 
 	if runErr != nil {
@@ -98,18 +113,9 @@ func (s *Scheduler) runSingleJob(ctx context.Context, now time.Time, job CronJob
 		job.LastError = runErr.Error()
 	} else {
 		exec.Status = "success"
-		exec.OutputSummary = output
 		job.LastStatus = "success"
 		job.LastError = ""
 	}
-	observability.Observe(runCtx, s.config.Observer, observability.Operation{
-		RunID:      agent.ContextFields(runCtx)["run_id"],
-		Component:  "cron.scheduler",
-		Operation:  "execute_job",
-		Status:     exec.Status,
-		DurationMS: duration.Milliseconds(),
-		Summary:    "job_id=" + job.ID,
-	})
 
 	job.LastRunAt = &finishedAt
 
@@ -122,55 +128,29 @@ func (s *Scheduler) runSingleJob(ctx context.Context, now time.Time, job CronJob
 			return err
 		}
 		job.NextRunAt = &nextRunAt
+	} else {
+		log.Printf("cron.scheduler: unknown schedule_type %q for job %s, deactivating", job.ScheduleType, job.ID)
+		job.Active = false
+		job.NextRunAt = nil
 	}
 
-	if err := s.store.RecordExecution(ctx, exec); err != nil {
-		return err
-	}
-	if err := s.store.UpdateJob(ctx, job); err != nil {
+	if err := s.store.WithTx(ctx, func(tx *sql.Tx) error {
+		if err := s.store.RecordExecutionTx(ctx, tx, exec); err != nil {
+			return err
+		}
+		return s.store.UpdateJobTx(ctx, tx, job)
+	}); err != nil {
 		return err
 	}
 	return nil
 }
 
+// computeNextRun calculates the next run time for a standard cron expression.
 func computeNextRun(expr string, after time.Time) (time.Time, error) {
-	parts := strings.Fields(strings.TrimSpace(expr))
-	if len(parts) != 5 {
-		return time.Time{}, fmt.Errorf("unsupported cron expression: %s", expr)
-	}
-
-	minutePart := parts[0]
-	hourPart := parts[1]
-
-	switch {
-	case strings.HasPrefix(minutePart, "*/") && hourPart == "*":
-		interval, err := time.ParseDuration(strings.TrimPrefix(minutePart, "*/") + "m")
-		if err != nil || interval <= 0 {
-			return time.Time{}, fmt.Errorf("unsupported cron expression: %s", expr)
-		}
-		return after.UTC().Truncate(time.Minute).Add(interval), nil
-	case isExactNumber(minutePart) && isExactNumber(hourPart):
-		minute, _ := parseInt(minutePart)
-		hour, _ := parseInt(hourPart)
-		next := time.Date(after.Year(), after.Month(), after.Day(), hour, minute, 0, 0, time.UTC)
-		if !next.After(after.UTC()) {
-			next = next.Add(24 * time.Hour)
-		}
-		return next, nil
-	default:
-		return time.Time{}, fmt.Errorf("unsupported cron expression: %s", expr)
-	}
-}
-
-func isExactNumber(v string) bool {
-	_, err := parseInt(v)
-	return err == nil
-}
-
-func parseInt(v string) (int, error) {
-	n, err := strconv.Atoi(v)
+	parser := robfigcron.NewParser(robfigcron.Minute | robfigcron.Hour | robfigcron.Dom | robfigcron.Month | robfigcron.Dow)
+	sched, err := parser.Parse(expr)
 	if err != nil {
-		return 0, err
+		return time.Time{}, fmt.Errorf("invalid cron expression %q: %w", expr, err)
 	}
-	return n, nil
+	return sched.Next(after), nil
 }

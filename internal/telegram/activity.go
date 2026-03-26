@@ -1,6 +1,7 @@
 package telegram
 
 import (
+	"log"
 	"sync"
 	"time"
 
@@ -16,14 +17,16 @@ func startChatActionLoop(sender actionSender, recipient telebot.Recipient, actio
 		return func() {}
 	}
 	if interval <= 0 {
-		interval = 4 * time.Second
+		interval = typingIndicatorInterval
 	}
 
 	done := make(chan struct{})
 	var once sync.Once
 
 	go func() {
-		_ = sender.Notify(recipient, action)
+		if err := sender.Notify(recipient, action); err != nil {
+			log.Printf("Failed to send typing indicator: %v", err)
+		}
 
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
@@ -31,7 +34,9 @@ func startChatActionLoop(sender actionSender, recipient telebot.Recipient, actio
 		for {
 			select {
 			case <-ticker.C:
-				_ = sender.Notify(recipient, action)
+				if err := sender.Notify(recipient, action); err != nil {
+				log.Printf("Failed to send typing indicator: %v", err)
+			}
 			case <-done:
 				return
 			}

@@ -12,8 +12,7 @@ var requiredDirs = []func(*PathResolver) string{
 	(*PathResolver).Data,
 	(*PathResolver).Memory,
 	(*PathResolver).MemoryPersonas,
-	(*PathResolver).Skills,
-	(*PathResolver).Logs,
+	(*PathResolver).Agents,
 }
 
 // Bootstrap creates the full instance directory tree with 0700 permissions.

@@ -8,12 +8,11 @@ import (
 
 	"gopkg.in/telebot.v3"
 
-	"github.com/kocar/aurelia/internal/agent"
+	"github.com/kocar/aurelia/internal/agents"
+	"github.com/kocar/aurelia/internal/bridge"
 	"github.com/kocar/aurelia/internal/config"
-	"github.com/kocar/aurelia/internal/memory"
-	"github.com/kocar/aurelia/internal/observability"
 	"github.com/kocar/aurelia/internal/persona"
-	"github.com/kocar/aurelia/internal/skill"
+	"github.com/kocar/aurelia/internal/session"
 	"github.com/kocar/aurelia/pkg/stt"
 )
 
@@ -21,24 +20,30 @@ import (
 type BotController struct {
 	bot              *telebot.Bot
 	config           *config.AppConfig
-	tools            *agent.ToolRegistry
-	memory           *memory.MemoryManager
-	contextPolicy    *memory.ContextPolicy
-	router           *skill.Router
-	executor         *skill.Executor
-	loader           *skill.Loader
+	bridge           *bridge.Bridge
+	agents           *agents.Registry
+	persona          *persona.CanonicalIdentityService
 	stt              stt.Transcriber
-	canonical        *persona.CanonicalIdentityService
+	cronHandler      *CronCommandHandler
+	sessions         *session.Store
+	tracker          *session.Tracker
+	personasDir      string
+	exePath          string // path to aurelia binary for CLI instructions in system prompt
 	bootstrapMu      sync.Mutex
 	pendingBootstrap map[int64]bootstrapState
-	albumMu          sync.Mutex
-	pendingAlbums    map[string]*pendingAlbum
-	mediaMu          sync.Mutex
-	recentMedia      map[string]recentMedia
-	mcpMu            sync.Mutex
-	recentMCP        map[string]recentMCPContext
-	personasDir      string
-	ops              observability.Recorder
+	albums           *albumBuffer
+	bridgeFailures   bridgeFailureTracker
+}
+
+type albumBuffer struct {
+	mu      sync.Mutex
+	pending map[string]*pendingAlbum
+}
+
+func newAlbumBuffer() *albumBuffer {
+	return &albumBuffer{
+		pending: make(map[string]*pendingAlbum),
+	}
 }
 
 type pendingAlbum struct {
@@ -52,28 +57,18 @@ type albumPhoto struct {
 	photo     telebot.Photo
 }
 
-type recentMedia struct {
-	parts     []agent.ContentPart
-	updatedAt time.Time
-}
-
-type recentMCPContext struct {
-	servers   []string
-	updatedAt time.Time
-}
-
 // NewBotController builds the Telegram controller.
 func NewBotController(
 	cfg *config.AppConfig,
-	registry *agent.ToolRegistry,
-	mem *memory.MemoryManager,
-	r *skill.Router,
-	e *skill.Executor,
-	l *skill.Loader,
+	br *bridge.Bridge,
+	ag *agents.Registry,
+	p *persona.CanonicalIdentityService,
 	s stt.Transcriber,
-	canonical *persona.CanonicalIdentityService,
+	cronHandler *CronCommandHandler,
 	personasDir string,
-	ops observability.Recorder,
+	exePath string,
+	sessions *session.Store,
+	tracker *session.Tracker,
 ) (*BotController, error) {
 
 	pref := telebot.Settings{
@@ -89,20 +84,17 @@ func NewBotController(
 	bc := &BotController{
 		bot:              b,
 		config:           cfg,
-		tools:            registry,
-		memory:           mem,
-		contextPolicy:    memory.NewContextPolicy(mem),
-		router:           r,
-		executor:         e,
-		loader:           l,
+		bridge:           br,
+		agents:           ag,
+		persona:          p,
 		stt:              s,
-		canonical:        canonical,
-		pendingBootstrap: make(map[int64]bootstrapState),
-		pendingAlbums:    make(map[string]*pendingAlbum),
-		recentMedia:      make(map[string]recentMedia),
-		recentMCP:        make(map[string]recentMCPContext),
+		cronHandler:      cronHandler,
+		sessions:         sessions,
+		tracker:          tracker,
 		personasDir:      personasDir,
-		ops:              ops,
+		exePath:          exePath,
+		pendingBootstrap: make(map[int64]bootstrapState),
+		albums:           newAlbumBuffer(),
 	}
 
 	bc.setupRoutes()
@@ -112,13 +104,6 @@ func NewBotController(
 // GetBot exposes the underlying Telebot instance.
 func (bc *BotController) GetBot() *telebot.Bot {
 	return bc.bot
-}
-
-func (bc *BotController) GetOpsStore() observability.Recorder {
-	if bc == nil {
-		return nil
-	}
-	return bc.ops
 }
 
 // Start begins Telegram polling.
@@ -149,4 +134,5 @@ func (bc *BotController) setupRoutes() {
 
 	bc.setupBootstrapRoutes()
 	bc.registerContentRoutes()
+	bc.registerSlashMenu()
 }

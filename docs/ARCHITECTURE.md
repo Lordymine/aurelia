@@ -2,20 +2,13 @@
 
 ## Context
 
-`Aurelia` is a local-first autonomous coding agent built in Go.
+Aurelia OS is a local-first agent operating system built in Go.
 
-The system operates through Telegram, persists operational state in SQLite, and executes work through an explicit runtime made of:
+The system delegates LLM reasoning to a TypeScript Bridge process that wraps the Claude SDK, while Go owns orchestration, session management, scheduling, identity, and interfaces.
 
-- a ReAct loop
-- a live tool registry
-- Agent Teams orchestration
-- layered memory
-- controlled local execution
-- optional MCP integration
+User interaction happens through Telegram. Operational state persists in SQLite.
 
-This document is the architectural source of truth for the current codebase.
-
-Use it together with:
+Use this document together with:
 
 - `AGENTS.md`
 - `docs/STYLE_GUIDE.md`
@@ -23,298 +16,122 @@ Use it together with:
 
 ## Architectural Shape
 
-The project is a modular monolith in Go.
-
 ```text
-/cmd/aurelia/
+cmd/aurelia/
   main.go          [thin entrypoint]
   app.go           [composition root]
-  wiring.go        [dependency and tool registration]
 
-/internal/
-  agent/           [loop, tool registry, team manager, task graph, recovery]
-  config/          [configuration loading]
-  cron/            [store, service, scheduler, runtime]
-  mcp/             [manager, discovery, transport]
-  memory/          [messages, facts, notes, archive]
-  persona/         [canonical identity, prompt building, retrieval, file sync]
+bridge/
+  index.ts         [TypeScript Bridge — Claude SDK wrapper]
+  package.json     [Bridge dependencies]
+
+internal/
+  agents/          [agent registry — markdown-defined agents with YAML frontmatter]
+  bridge/          [Go client for the TS Bridge process]
+  config/          [configuration loading and validation]
+  cron/            [schedule store, scheduler, bridge-backed runtime, delivery]
+  session/         [session store, token tracking, auto-reset]
+  persona/         [identity files, prompt assembly]
   runtime/         [instance and project path resolution]
-  skill/           [skill loading and routing]
-  telegram/        [handlers, bootstrap, input pipeline, output]
-  tools/           [tool definitions, handlers, MCP adapter]
+  telegram/        [Telegram bot handlers]
 
-/pkg/
-  llm/             [LLM providers and model catalogs]
+pkg/
   stt/             [speech-to-text]
 ```
 
-Current code still contains legacy repository names and paths.
-Those are implementation details under migration, not the product identity to preserve.
+## Bridge Protocol
+
+The Bridge is the boundary between Go and Claude. Go starts a long-lived multiplexed TypeScript process, communicates via stdin/stdout using NDJSON with request multiplexing via `request_id`.
+
+Flow:
+
+1. Go serializes a `Request` (command, prompt, request_id, options) as JSON to stdin
+2. Bridge process reads the request, calls the Claude SDK
+3. Bridge streams NDJSON events back on stdout (system, tool_use, assistant, result, error, pong)
+4. Go reads events, correlates by request_id, and acts on them (forwarding text to Telegram, storing results, etc.)
+
+The Bridge is long-lived — multiple concurrent requests are multiplexed over the same process.
+
+## Agent Registry
+
+Agents are defined as markdown files with YAML frontmatter. The registry loads all `.md` files from a configurable directory.
+
+Frontmatter fields: `name`, `description`, `model` (optional override), `schedule` (cron expression), `mcp_servers`, `allowed_tools`.
+
+The markdown body becomes the system prompt for that agent.
+
+Scheduled agents are registered with the cron scheduler at startup.
+
+## Session Management
+
+`internal/session` provides session store and token tracking, extracted from the telegram package for reuse across channels.
+
+Capabilities:
+
+- Session ID management per chat (warm continue / cold resume)
+- Token usage accumulation and cost tracking
+- Auto-reset when configurable token threshold is exceeded (`max_session_tokens`)
 
 ## Runtime Scope Separation
 
-The runtime distinguishes three scopes:
-
 ### Repository
 
-Contains:
-
-- source code
-- tests
-- project documentation
-- default assets shipped with the product
+Source code, tests, project documentation, default assets.
 
 ### Local Instance
 
-Lives outside the repository in a per-user hidden directory.
+Lives outside the repository in `~/.aurelia/`.
 
-Contains:
-
-- local config
-- canonical app config in `config/app.json`
-- SQLite state
-- logs
-- learned notes
-- runtime skills
-- canonical persona files
+Contains: config, SQLite state, logs, persona files, runtime artifacts.
 
 ### Target Project
 
-The external codebase the agent is acting on.
-
-It may define project-specific docs and working conventions.
-
-Project-specific rules must not leak into global defaults unless explicitly promoted.
+External codebase the agent acts on. Project-specific rules stay local.
 
 ## Layer Boundaries
 
 ### Entry And Wiring
 
-`cmd/aurelia` is responsible for:
-
-- loading configuration
-- building services
-- registering tools
-- starting and stopping runtimes
-
-It must stay thin.
-
-Runtime configuration is instance-local and file-backed.
-
-Rule:
-
-- app runtime config is loaded from `~/.aurelia/config/app.json`
-- LLM selection is persisted as `llm_provider` plus `llm_model`
-- provider-specific auth modes are explicit config fields when needed, such as `openai_auth_mode`
-- repository-local `.env` files are not part of the supported runtime config model
-
-Current auth variants:
-
-- `google`: `api_key`
-- `kilo`: `api_key`
-- `zai`: `coding_plan_api_key`
-- `alibaba`: `coding_plan_api_key`
-- `openai`: `api_key` or experimental local `codex` CLI mode
-
-Vision input:
-
-- Telegram photos, image documents, and photo albums enter the runtime as multimodal user messages
-- providers decide support at runtime based on the selected model
-- when the active model does not support image input, Aurelia responds with a natural limitation message instead of silently ignoring the image
+`cmd/aurelia` loads configuration, builds services, and starts runtimes. Must stay thin.
 
 ### Interface Layer
 
-`internal/telegram` is the interface boundary.
+`internal/telegram` receives Telegram events, adapts input, sends output. Not a domain layer.
 
-Responsibilities:
+### Identity
 
-- receiving Telegram events
-- adapting text, files, and audio into internal input
-- sending output back to Telegram
+`internal/persona` resolves canonical identity files and assembles system prompts.
 
-It must not become the source of truth for business rules.
+### Session
 
-### Domain And Orchestration
+`internal/session` provides session store and token tracking with auto-reset logic.
 
-`internal/agent` is the center of execution behavior.
+### Scheduling
 
-Responsibilities:
-
-- ReAct loop
-- tool execution contracts
-- Agent Teams orchestration
-- task graph
-- recovery
-
-### Memory And Identity
-
-`internal/memory` persists:
-
-- recent messages
-- durable facts
-- compact notes
-- raw archive
-
-`internal/persona` resolves:
-
-- canonical identity
-- prompt assembly
-- file synchronization
-- owner and project context injection
-- retrieval helpers
-
-Important rule:
-
-- identity and operating rules come from canonical persona and project context
-- actual runtime capabilities come from the live tool registry
-
-### Tooling
-
-`internal/tools` owns:
-
-- native tool definitions
-- handler contracts
-- schedule tools
-- MCP registration adapters
-- team mailbox and control tools
-
-Tool schemas belong here, not in the composition root.
-
-Provider and model metadata should have a single source of truth in `pkg/llm`.
-
-That includes:
-
-- provider identity and labels
-- default model selection
-- model catalog fallbacks
-- model normalization rules
-- context window lookup tables
-
-Interface layers and wiring may consume this metadata, but should not redefine it locally.
-
-Tool exposure should follow the same rule.
-
-- canonical tool profiles and intent-based tool selection belong in the runtime/domain layer
-- interface layers may trigger execution with an allowed-tool set, but should not own the selection policy
-- the default path should expose the minimum necessary tool surface instead of the full registry
-- MCP tools should stay out of ordinary chat by default, but explicit user requests for a registered MCP server or tool, such as `context7`, may expose only the matching `mcp_*` subset
-- MCP selection should be inferred from the live tool registry with light conversation continuity, so a server used successfully in the current thread can remain available for immediate follow-up turns without reopening the whole MCP surface
-
-## Core Runtime Model
-
-### ReAct Execution
-
-The main loop is tool-driven.
-
-The runtime injects:
-
-- available tools
-- execution guidance
-- workdir guidance
-- runtime capabilities
-
-The agent must reason from real capabilities, not assumed capabilities.
-
-For token efficiency and provider-side cache friendliness:
-
-- tool exposure should be minimal for the current execution
-- explicit requests for a registered MCP capability should resolve only the matching MCP tools instead of the whole MCP surface
-- when dynamic tool access is enabled for the user-facing chat runtime, Aurelia may expose a small on-demand capability catalog plus a lightweight expansion tool instead of sending every hidden tool schema up front
-- the serialized tool block should be compact and stable for equivalent executions
-- oversized tool outputs should be compacted out of active history and preserved only through local operational artifacts when needed
-
-### Agent Teams
-
-The multi-agent model is master-led.
-
-Rules:
-
-- `master` is the only agent that answers the end user
-- workers operate on explicit tasks
-- tasks carry status, ownership, dependencies, result, and canonical `workdir`
-- workers may coordinate through internal mailbox tools
-- operational team state should persist in SQLite whenever possible
-
-### Memory
-
-The memory model is deterministic and layered.
-
-Priority order:
-
-1. canonical identity
-2. stable facts
-3. episodic notes
-4. recent conversation window
-
-The architecture explicitly avoids treating larger prompts or vector search as the default fix for identity and continuity problems.
-
-Conversation continuity follows a simple local context-budget policy:
-
-- context capacity is resolved from a small provider/model table
-- prompt size is estimated locally before execution
-- when the estimated prompt crosses the soft threshold, Aurelia compacts older chat history into a deterministic summary note and trims the working window
-- when it crosses the hard threshold, Aurelia rotates the working window more aggressively while preserving the latest compact summary plus durable facts and notes
-
-This is intentionally not a provider-driven session-introspection subsystem.
-The runtime keeps continuity by deterministic local policy over SQLite-backed memory.
-The source of truth for this policy lives in `internal/memory`; interface layers may trigger it, but should not own the rule.
-
-### Local Execution
-
-The runtime is expected to observe the environment, not only describe it.
-
-That includes:
-
-- reading files
-- writing files
-- listing directories
-- running controlled local commands
-- acting on a canonical project `workdir`
-
-Operational observability is local-first and intentionally minimal:
-
-- correlated logs carry stable execution identifiers such as `run_id`, `team_id`, and `task_id` when available
-- critical runtime boundaries record short operational events in SQLite for recent inspection
-- inspection stays inside the product surface through lightweight debug commands instead of external APM dependencies by default
+`internal/cron` persists schedules in SQLite and executes them through the Bridge.
 
 ## Architectural Rules
 
 1. Telegram is an interface layer, not a domain layer.
-2. Identity and memory rules belong in `persona` and `memory`.
-3. Multi-agent orchestration belongs in `agent`.
-4. Long-lived operational state should persist in SQLite when practical.
-5. Tools are explicit runtime capabilities, not hidden side channels.
-6. New code should preserve the modular monolith shape instead of adding ad hoc service sprawl.
-7. Workers operating on external projects must preserve canonical `workdir` across local tools.
-8. Architecture changes must be reflected here before the task is considered complete.
+2. Identity rules belong in `persona`.
+3. Session management belongs in `session`.
+4. Agent definitions are declarative markdown, not code.
+5. The Bridge is the only path to LLM reasoning — Go never calls LLM APIs directly.
+6. Long-lived state persists in SQLite.
+7. New code should preserve the modular shape.
+8. Architecture changes must be reflected here before the task is complete.
 
 ## Current Capabilities
 
-Implemented in the current codebase:
-
-- tool-driven ReAct loop
-- Agent Teams orchestration with task graph, mailbox, recovery, and final synthesis
-- SQLite-backed memory and operational persistence
-- Telegram text, markdown, image, and audio input flow
-- cron scheduling subsystem
-- MCP discovery and registration
-- project-aware execution through propagated `workdir`
+- Bridge-based LLM execution via Claude SDK
+- Agent registry with markdown-defined agents and LLM classification
+- Session management with token tracking and auto-reset
+- Telegram text, photo, and audio input
+- Cron scheduling with bridge-backed execution and Telegram delivery
+- Configurable multi-provider support
+- Persona-driven identity and prompt assembly
 
 ## Current Constraints
 
-Known constraints in the current codebase:
-
-- repository naming still reflects the old product identity
-- some documentation is still transitional and overlaps with future canonical docs
-- benchmark evidence for memory and CPU footprint is not yet documented
-- contribution governance and GitHub policy gates are not fully established yet
-
-## Documentation Policy
-
-This file captures architecture and boundaries.
-
-Implementation conventions belong in `docs/STYLE_GUIDE.md`.
-
-Operational mistakes, traps, and recurring lessons belong in `docs/LEARNINGS.md`.
-
-
+- Bridge requires Node.js runtime available on PATH
+- No multi-agent orchestration yet (single agent per execution)

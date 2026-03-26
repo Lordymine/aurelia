@@ -2,8 +2,6 @@ package telegram
 
 import (
 	"log"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -11,6 +9,7 @@ import (
 )
 
 const telegramMessageLimit = 3900
+const interChunkDelay = 200 * time.Millisecond
 
 type messageSender interface {
 	Send(to telebot.Recipient, what interface{}, opts ...interface{}) (*telebot.Message, error)
@@ -28,7 +27,7 @@ func sendTextWithSender(sender messageSender, chat *telebot.Chat, text string, l
 			ParseMode: telebot.ModeHTML,
 		})
 		if err == nil {
-			time.Sleep(200 * time.Millisecond)
+			time.Sleep(interChunkDelay)
 			continue
 		}
 
@@ -39,13 +38,13 @@ func sendTextWithSender(sender messageSender, chat *telebot.Chat, text string, l
 				log.Printf("Hit rate limit in chunk sending. Retrying in %v...", floodErr.RetryAfter)
 				time.Sleep(time.Duration(floodErr.RetryAfter) * time.Second)
 				if _, retryErr := sender.Send(chat, chunk); retryErr == nil {
-					time.Sleep(200 * time.Millisecond)
+					time.Sleep(interChunkDelay)
 					continue
 				}
 			}
 			return err
 		}
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(interChunkDelay)
 	}
 	return nil
 }
@@ -85,35 +84,60 @@ func bestSplitIndex(text string, limit int) int {
 	return len(string(runes[:limit]))
 }
 
-func SendDocument(bot *telebot.Bot, chat *telebot.Chat, filename, content string) error {
-	tmpDir := os.TempDir()
-	path := filepath.Join(tmpDir, filename)
+func SendTextReply(bot *telebot.Bot, chat *telebot.Chat, text string, replyToID int) error {
+	if replyToID == 0 {
+		return SendText(bot, chat, text)
+	}
+	return sendTextReplyWithSender(bot, chat, text, telegramMessageLimit, replyToID)
+}
 
-	err := os.WriteFile(path, []byte(content), 0644)
+func sendTextReplyWithSender(sender messageSender, chat *telebot.Chat, text string, limit int, replyToID int) error {
+	chunks := splitTelegramMarkdown(text, limit)
+	replyTo := &telebot.Message{ID: replyToID}
+
+	for i, chunk := range chunks {
+		htmlChunk := MarkdownToHTML(chunk)
+		opts := &telebot.SendOptions{ParseMode: telebot.ModeHTML}
+		// Only reply-to on the first chunk
+		if i == 0 {
+			opts.ReplyTo = replyTo
+		}
+
+		_, err := sender.Send(chat, htmlChunk, opts)
+		if err == nil {
+			time.Sleep(interChunkDelay)
+			continue
+		}
+
+		log.Printf("Send chunk with HTML failed (%v). Retrying as plain text...", err)
+		opts = &telebot.SendOptions{}
+		if i == 0 {
+			opts.ReplyTo = replyTo
+		}
+		_, err = sender.Send(chat, chunk, opts)
+		if err != nil {
+			return err
+		}
+		time.Sleep(interChunkDelay)
+	}
+	return nil
+}
+
+func ReactToMessage(bot *telebot.Bot, chat *telebot.Chat, messageID int, emoji string) {
+	if messageID == 0 || chat == nil {
+		return
+	}
+	msg := &telebot.Message{ID: messageID, Chat: chat}
+	err := bot.React(chat, msg, telebot.ReactionOptions{
+		Reactions: []telebot.Reaction{{Type: "emoji", Emoji: emoji}},
+	})
 	if err != nil {
-		log.Println("SendDocument tmp write failed, sending as fallback text...")
-		return SendText(bot, chat, "Nao consegui gerar arq, segue texto puro:\n\n"+content)
+		log.Printf("React error: %v", err)
 	}
-	defer func() { _ = os.Remove(path) }()
-
-	doc := &telebot.Document{
-		File:     telebot.FromDisk(path),
-		FileName: filename,
-		MIME:     "text/markdown",
-	}
-
-	_, err = bot.Send(chat, doc)
-	return err
 }
 
 func SendError(bot *telebot.Bot, chat *telebot.Chat, errMsg string) error {
 	return sendErrorWithSender(bot, chat, "Erro", errMsg)
-}
-
-func SendAudio(bot *telebot.Bot, chat *telebot.Chat, text string) error {
-	log.Println("Audio generation required. Simulating edge-tts dump...")
-	log.Println("Edge-TTS binary mockup called. Will fallback to Text output for now.")
-	return SendText(bot, chat, text)
 }
 
 func sendErrorWithSender(sender messageSender, chat *telebot.Chat, title, errMsg string) error {

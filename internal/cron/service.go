@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -97,4 +98,32 @@ func (s *Service) ResumeJob(ctx context.Context, jobID string) error {
 
 func (s *Service) DeleteJob(ctx context.Context, jobID string) error {
 	return s.store.DeleteJob(ctx, jobID)
+}
+
+// AddRecurringJob creates a cron-scheduled job for the given chat.
+func (s *Service) AddRecurringJob(ctx context.Context, userID string, chatID int64, expr, prompt string) (string, error) {
+	return s.CreateJob(ctx, CronJob{
+		ID:           uuid.NewString(),
+		OwnerUserID:  userID,
+		TargetChatID: chatID,
+		ScheduleType: "cron",
+		CronExpr:     expr,
+		Prompt:       prompt,
+	})
+}
+
+// AddOnceJob creates a one-shot job scheduled at the given timestamp for the given chat.
+func (s *Service) AddOnceJob(ctx context.Context, userID string, chatID int64, timestamp, prompt string) (string, error) {
+	t, err := time.Parse(time.RFC3339, timestamp)
+	if err != nil {
+		return "", fmt.Errorf("invalid timestamp %q: %w", timestamp, err)
+	}
+	return s.CreateJob(ctx, CronJob{
+		ID:           uuid.NewString(),
+		OwnerUserID:  userID,
+		TargetChatID: chatID,
+		ScheduleType: "once",
+		RunAt:        &t,
+		Prompt:       prompt,
+	})
 }

@@ -1,241 +1,264 @@
 <div align="center">
 
-# Aurelia
+# Aurelia OS
 
 <img src="assets/aurelia_cover.png" alt="Aurelia cover" width="720" />
 
-**A local-first autonomous coding agent in Go.**
+**An autonomous agent operating system in Go.**
 
-Telegram-native. Tool-driven. SQLite-backed. Built to stay light.
+Telegram-native. Claude Code-powered. Built to stay light.
 
-One persistent agent, many target projects.
+One persistent daemon, many projects, many agents.
 
 [![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go&logoColor=white)](https://go.dev/)
 [![Runtime](https://img.shields.io/badge/Runtime-Local--First-0F172A)](#runtime-model)
 [![Architecture](https://img.shields.io/badge/Architecture-Modular_Monolith-1F2937)](docs/ARCHITECTURE.md)
-[![Memory](https://img.shields.io/badge/Memory-Layered-0E7490)](#why-aurelia)
 [![Storage](https://img.shields.io/badge/Storage-SQLite-003B57?logo=sqlite&logoColor=white)](https://sqlite.org/)
 [![Telegram](https://img.shields.io/badge/Interface-Telegram-26A5E4?logo=telegram)](https://core.telegram.org/bots/api)
-[![MCP](https://img.shields.io/badge/MCP-Enabled-6E56CF)](https://modelcontextprotocol.io/)
-[![Bench](https://img.shields.io/badge/Idle_RAM-25.66_MB-15803D)](#lightweight-baseline)
-[![Bench](https://img.shields.io/badge/Binary-23.22_MB-15803D)](#lightweight-baseline)
+[![Bridge](https://img.shields.io/badge/Brain-Claude_Code_SDK-6E56CF)](https://platform.claude.com/docs/en/agent-sdk)
 
 </div>
 
-## Why Aurelia
+## Why Aurelia OS
 
-`Aurelia` is an autonomous coding agent designed to run locally with a small operational footprint and explicit runtime behavior.
+Aurelia is an autonomous agent operating system accessible via Telegram. Talk naturally — Aurelia decides whether to respond directly, delegate to a specialist agent, or schedule automated execution.
 
 It is built around a practical execution model:
 
-- Go runtime
-- SQLite persistence
-- tool-driven ReAct loop
-- master-led Agent Teams
-- deterministic layered memory
-- controlled local command execution
-- optional MCP expansion
+- Go daemon (24/7, lightweight)
+- TypeScript Bridge wrapping the Claude Agent SDK
+- Claude Code CLI as the brain (tools, MCPs, skills, subagents)
+- Session management with token tracking and auto-reset
+- Configurable agents in markdown
+- Persistent cron scheduler with Telegram delivery
+- Multi-provider: Anthropic, Kimi, OpenRouter, Z.ai, Alibaba
 
-The goal is not to fake autonomy through giant prompts.
-The goal is to observe the local environment, act with real tools, persist useful state, and remain understandable under load.
-
-## Lightweight Baseline
-
-Current measured baseline is documented in [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
-
-Release build:
-
-- binary size: `23.22 MB`
-
-Idle runtime baseline on the current Windows machine:
-
-- startup average: `15.75 ms`
-- idle working set: `25.66 MB`
-- idle private memory: `53.39 MB`
-- idle CPU average: `0.00%`
-
-Method summary:
-
-- release build with `-trimpath -ldflags "-s -w"`
-- isolated `AURELIA_HOME`
-- temporary DB and MCP config paths
-- three-run sample
-
-These numbers are local baseline measurements, not universal guarantees across all hardware.
+The goal is not to reimplement what Claude Code already does.
+The goal is to orchestrate it — adding persistence, scheduling, multi-project support, and a natural Telegram interface on top.
 
 ## Core Capabilities
 
-- Telegram-native interaction with text, markdown documents, images, markdown documents, and audio input
-- tool-driven ReAct execution
-- Agent Teams with master-only user response, task graph, mailbox, and recovery
-- SQLite-backed recent memory, facts, notes, archive, and operational task state
-- local file operations and controlled command execution
-- project-aware `workdir` propagation
-- cron scheduling subsystem
-- optional MCP tool discovery and registration
+- **Natural conversation** via Telegram with text, photos, voice, and documents
+- **Autonomous coding** — reads, writes, edits files, runs commands, searches code
+- **Multi-project** — work on different projects simultaneously with isolated contexts
+- **Async execution** — messages process in parallel, responses arrive when ready
+- **Session continuity** — conversation context persists across messages via session resume with auto-reset on token threshold
+- **Smart routing** — LLM-based classification routes messages to the right agent
+- **Persistent scheduling** — create cron jobs via natural conversation, results delivered to Telegram
+- **Tool progress** — see what Claude Code is doing in real-time (reading files, running commands...)
+- **Reply-to** — responses quote the original message for async conversation clarity
+- **Reactions** — contextual emoji reactions via CLI
+- **Photo analysis** — images downloaded and passed to Claude Code for visual analysis
+- **Voice transcription** — Groq STT converts voice messages to text
+- **Inherits your setup** — MCPs, skills, plugins, and hooks from your Claude Code account
 
 ## Runtime Model
 
 Aurelia separates three scopes:
 
-1. Repository
-2. Local instance
-3. Target project
-
-This keeps product source, user runtime state, and external project work clearly separated.
+1. **Repository** — product source code
+2. **Local instance** — user runtime state (`~/.aurelia/`)
+3. **Target projects** — external codebases the agent works on
 
 High-level flow:
 
 ```mermaid
 flowchart LR
     U[User] --> T[Telegram]
-    T --> LOOP[ReAct Loop]
-    LOOP --> REG[Tool Registry]
-    LOOP --> MEM[Layered Memory]
-    REG --> TEAM[Agent Teams]
-    REG --> CORE[Native Tools]
-    REG --> MCP[MCP Tools]
-    TEAM --> TASKS[Task Graph + Mailbox]
-    LOOP --> OUT[Final Response]
-    OUT --> U
+    T --> P[Pipeline]
+    P --> R[Agent Router]
+    R --> B[Bridge TS]
+    B --> SDK[Claude Code SDK]
+    SDK --> TOOLS[Tools + MCPs + Skills]
+    P --> SESS[Session Manager]
+    P --> CRON[Cron Scheduler]
+    B --> RES[Response]
+    RES --> T
+```
+
+### Message Flow
+
+```
+1. Message arrives on Telegram
+2. Pipeline extracts text/photo/voice/document
+3. Agent router classifies → specialist agent or general
+4. System prompt assembled: persona + agent + cron instructions
+5. Request sent to Bridge (long-lived TypeScript process)
+6. Bridge calls Claude Code SDK → Claude Code CLI executes
+7. Events streamed back: tool_use → progress, assistant → text, result → response
+8. Response delivered to Telegram (reply-to original message)
+9. Session token usage tracked, auto-reset if threshold exceeded
+```
+
+### Cron Flow
+
+```
+1. Scheduler polls every 15 seconds
+2. Due job found → load agent config + persona
+3. Execute via Bridge (Telegram plugin blocked to prevent wrong bot)
+4. Result delivered to Telegram via TelegramDelivery
 ```
 
 ## Architecture
 
-Aurelia follows a modular monolith layout:
-
 ```text
-/cmd/aurelia/
-  main.go
-  app.go
-  wiring.go
-
-/internal/
-  agent/
-  config/
-  cron/
-  mcp/
-  memory/
-  persona/
-  runtime/
-  skill/
-  telegram/
-  tools/
-
-/pkg/
-  llm/
-  stt/
+cmd/aurelia/              CLI entry point, onboarding, cron CLI, telegram CLI
+internal/bridge/          Go ↔ Bridge client (long-lived, multiplexed, bundle embedded via go:embed)
+internal/telegram/        Telegram I/O, async pipeline, progress, reactions
+internal/session/         Session store and token tracking with auto-reset
+internal/agents/          Agent registry (markdown definitions, LLM classification)
+internal/persona/         Persona loader (IDENTITY / SOUL / USER)
+internal/cron/            Persistent cron scheduler with Telegram delivery
+internal/config/          App configuration (providers, Telegram, sessions)
+internal/runtime/         Path resolver + instance bootstrap
+pkg/stt/                  Speech-to-text (Groq Whisper)
+bridge/                   TypeScript Bridge source (compiled to bundle.js via esbuild, embedded in binary)
 ```
 
-Architectural source of truth:
+### Bridge Protocol
 
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+The Bridge is a **long-lived** TypeScript process that wraps `@anthropic-ai/claude-agent-sdk`. Communication is via stdin/stdout NDJSON with request multiplexing:
 
-Implementation rules:
+**Go → Bridge (stdin):**
+```json
+{"command":"query","request_id":"req-1","prompt":"...","options":{"model":"k2.5","system_prompt":"...","cwd":"/path","permission_mode":"bypassPermissions"}}
+```
 
-- [docs/STYLE_GUIDE.md](docs/STYLE_GUIDE.md)
+**Bridge → Go (stdout):**
+```json
+{"event":"system","request_id":"req-1","session_id":"abc-123","tools":["Read","Write"]}
+{"event":"tool_use","request_id":"req-1","name":"Read","input":{"file_path":"src/main.go"}}
+{"event":"assistant","request_id":"req-1","text":"The project has..."}
+{"event":"result","request_id":"req-1","content":"...","cost_usd":0.12,"session_id":"abc-123"}
+```
 
-Operational lessons:
+Multiple requests run concurrently — each with its own `request_id`.
 
-- [docs/LEARNINGS.md](docs/LEARNINGS.md)
+### Agents
+
+Configurable specialists defined in markdown (`~/.aurelia/agents/`):
+
+```markdown
+---
+name: prospector
+description: Busca leads e entra em contato
+model: kimi-k2-thinking
+schedule: "0 9 * * 1"
+cwd: D:\projetos\crm
+mcp_servers:
+  google-places: { command: "npx google-places-mcp" }
+allowed_tools: ["WebSearch", "WebFetch", "Bash"]
+---
+
+Voce eh um agente de prospeccao comercial.
+Busque empresas no Google Places na regiao configurada.
+```
+
+Fields: `name`, `description`, `model`, `schedule`, `cwd`, `mcp_servers`, `allowed_tools`.
+
+Agents with `schedule` are automatically registered in the cron scheduler.
+
+### Persona
+
+Three markdown files in `~/.aurelia/memory/personas/`:
+
+- `IDENTITY.md` — name, role, rules, personality
+- `SOUL.md` — tone, style, behavior
+- `USER.md` — user information, preferences
+
+Created automatically via `/start` on Telegram (choose "Coder" or "Assistant" preset).
+
+## Telegram Commands
+
+| Command | Description |
+|---------|-------------|
+| `/start` | Setup persona (first run) or welcome |
+| `/help` | List available commands |
+| `/cwd <path>` | Set working directory for this chat |
+| `/reset` | Reset session (new conversation) |
+| `/cron` | Manage schedules (list, add, delete, pause, resume) |
+| `/agents` | List available agents |
+
+## CLI
+
+```bash
+# Run the bot
+go run ./cmd/aurelia/
+
+# Interactive onboarding
+go run ./cmd/aurelia/ onboard
+
+# Cron management
+aurelia cron add "30 8 * * *" "pesquise noticias de tech" --chat-id 123456
+aurelia cron once "2026-03-22T09:00:00Z" "gere relatorio" --chat-id 123456
+aurelia cron list
+aurelia cron del <job-id>
+
+# Telegram interaction (used by the agent via Bash)
+aurelia telegram react <chat-id> <message-id> <emoji>
+aurelia telegram send <chat-id> <text>
+aurelia telegram reply <chat-id> <message-id> <text>
+```
 
 ## Setup
 
 Requirements:
 
 - Go `1.25+`
+- Node.js `18+`
 - Telegram bot token
-- one LLM provider key:
-  - Kimi API key
-  - Anthropic API key
-- Google API key
-- Kilo API key
-- OpenRouter API key
-- Z.ai Coding Plan API key
-- Alibaba Coding Plan API key
-- OpenAI API key
-- or a local Codex CLI login for experimental OpenAI Codex mode
-- Groq API key for STT
+- One LLM provider:
+  - **Anthropic** — API key or Max subscription (uses OAuth via `claude login`)
+  - **Kimi** — API key (Anthropic-compatible endpoint)
+  - **OpenRouter** — API key (multi-model proxy)
+  - **Z.ai** — API key (GLM Coding Plan)
+  - **Alibaba** — API key (Qwen Coding Plan)
+- Groq API key for voice transcription (optional)
 
-Main runtime config lives in `~/.aurelia/config/app.json`.
+### Quick Start
 
-Example config:
+1. Run onboarding:
+   ```bash
+   go run ./cmd/aurelia/ onboard
+   ```
+
+2. Start:
+   ```bash
+   go run ./cmd/aurelia/
+   ```
+
+3. Send `/start` to your bot on Telegram.
+
+### Hot Reload (Development)
+
+```bash
+go install github.com/air-verse/air@latest
+air
+```
+
+### Config
+
+Main config lives in `~/.aurelia/config/app.json`:
 
 ```json
 {
-  "llm_provider": "kimi",
-  "llm_model": "kimi-k2-thinking",
-  "stt_provider": "groq",
-  "telegram_bot_token": "your-telegram-bot-token",
+  "default_provider": "anthropic",
+  "default_model": "claude-sonnet-4-6",
+  "providers": {
+    "anthropic": { "auth_mode": "subscription" },
+    "kimi": { "api_key": "sk-kimi-..." }
+  },
+  "telegram_bot_token": "your-token",
   "telegram_allowed_user_ids": [123456789],
-  "anthropic_api_key": "",
-  "google_api_key": "",
-  "kilo_api_key": "",
-  "kimi_api_key": "your-kimi-api-key",
-  "openrouter_api_key": "",
-  "zai_api_key": "",
-  "alibaba_api_key": "",
-  "openai_auth_mode": "api_key",
-  "openai_api_key": "",
-  "groq_api_key": "your-groq-api-key",
+  "stt_provider": "groq",
   "max_iterations": 500,
-  "db_path": "C:/Users/you/.aurelia/data/aurelia.db",
-  "memory_window_size": 20,
-  "mcp_servers_config_path": "C:/Users/you/.aurelia/config/mcp_servers.json"
+  "max_session_tokens": 100000
 }
 ```
 
-If the file does not exist, Aurelia creates it automatically with defaults on first start.
+Provider base URLs are auto-configured. For Anthropic subscription mode, run `claude login` first.
 
-Interactive onboarding:
-
-```bash
-go run ./cmd/aurelia onboard
-```
-
-The onboarding runs in guided steps:
-
-- select the LLM provider (`Kimi`, `Anthropic`, `Google`, `Kilo Code`, `OpenRouter`, `Z.ai`, `Alibaba`, or `OpenAI`)
-- select auth mode when the provider supports multiple paths:
-  - `OpenAI`: `api_key` or `codex`
-- select the LLM model
-- select the STT provider
-- configure Telegram
-- review runtime settings and save
-
-Model selection notes:
-
-- large catalogs such as `OpenRouter` and `Kilo Code` support live search by model or provider
-- the onboarding shows capability badges such as `[vision]`, `[tools]`, and `[free]` when the catalog exposes that metadata
-- use `→` in the model step to cycle between `all`, `vision`, `tools`, and `free`
-
-Provider notes:
-
-- `zai` expects a `GLM Coding Plan` key and uses the dedicated coding endpoint
-- `alibaba` expects a Coding Plan key and uses the dedicated coding endpoint
-- Telegram photos, image documents, and photo albums are forwarded as multimodal input when the current provider/model supports vision
-- if the current model does not support image input, Aurelia replies with a natural fallback explaining that limitation
-- `openai` in `codex` mode is experimental and should be treated as text-first; use API key mode or another provider for image analysis
-
-OpenAI Codex login:
-
-```bash
-go run ./cmd/aurelia auth openai
-```
-
-When `llm_provider` is `openai` and `openai_auth_mode` is `codex`, Aurelia uses the local `codex mcp-server` as an experimental runtime backend. This mode requires:
-
-- `codex` installed and available on `PATH`
-- a successful local `codex login`
-- choosing an OpenAI model in onboarding or `app.json`
-
-Run:
-
-```bash
-go run ./cmd/aurelia
-```
-
-Release build:
+### Release Build
 
 ```bash
 go build -trimpath -ldflags "-s -w" -o ./build/aurelia.exe ./cmd/aurelia
@@ -243,26 +266,32 @@ go build -trimpath -ldflags "-s -w" -o ./build/aurelia.exe ./cmd/aurelia
 
 ## Documentation
 
-Canonical documents for ongoing work:
+| Document | Purpose |
+|----------|---------|
+| [AGENTS.md](AGENTS.md) | Workflow rules, bridge protocol, agent format |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Architecture, layers, decisions |
+| [docs/STYLE_GUIDE.md](docs/STYLE_GUIDE.md) | Code conventions, Go patterns |
+| [docs/LEARNINGS.md](docs/LEARNINGS.md) | Operational lessons |
 
-- [AGENTS.md](AGENTS.md)
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-- [docs/STYLE_GUIDE.md](docs/STYLE_GUIDE.md)
-- [docs/LEARNINGS.md](docs/LEARNINGS.md)
-- [docs/BENCHMARKS.md](docs/BENCHMARKS.md)
+## Development
 
-Recommended reading order:
+```bash
+go build ./...        # Build
+go test ./... -short  # Test
+go vet ./...          # Lint
+air                   # Hot reload
+```
 
-1. `README.md`
-2. `AGENTS.md`
-3. `docs/ARCHITECTURE.md`
-4. `docs/STYLE_GUIDE.md`
-5. `docs/LEARNINGS.md`
-6. `docs/BENCHMARKS.md`
+To rebuild the Bridge bundle after modifying `bridge/index.ts`:
+
+```bash
+cd bridge && npx esbuild index.ts --bundle --platform=node --target=node18 --outfile=bundle.js --format=esm
+cp bundle.js ../internal/bridge/bundle.js
+```
 
 ## Current State
 
-- the active codebase runs under the `Aurelia` identity
-- the repository has benchmark-backed footprint data
-- the Go test suite is green
-- contribution policy and CI workflows are present in the repository
+- Go test suite is green (11 packages)
+- TypeScript Bridge compiles clean
+- Production code: ~6,800 lines Go + ~270 lines TypeScript
+- Active development on `feat/aurelia-os` branch

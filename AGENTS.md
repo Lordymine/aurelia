@@ -1,149 +1,141 @@
 # AGENTS.md
 
-This file defines how coding agents should operate within this repository.
-
-The goal is to keep execution disciplined, documentation current, and changes easy to review.
+Instructions for coding agents working in this repository.
 
 ---
 
-# Workflow
+## Architecture Overview
 
-Follow this workflow for any non-trivial task:
+Aurelia OS is a local-first agent operating system written in Go. It delegates LLM reasoning to a TypeScript Bridge process that wraps the Claude SDK, keeping Go responsible for orchestration, memory, scheduling, and interfaces.
 
-1. **Plan** — Draft a structured plan before touching code
-2. **Review** — Present the plan and wait for human approval
-3. **Execute** — Implement autonomously after approval
-4. **Validate** — Run the relevant tests and checks
-5. **Handoff** — Report completion and leave the commit to the human
+```text
+User ──► Telegram ──► Go runtime ──► Bridge (TS) ──► Claude SDK
+                          │
+                          ├── Agent Registry (markdown-defined agents)
+                          ├── Session Management (token tracking, auto-reset)
+                          ├── Cron Scheduler (bridge-backed)
+                          └── Persona (identity + context)
+```
 
-For trivial tasks, implement directly and validate briefly.
+### Bridge Protocol
 
-Replan if the current approach becomes messy, uncertain, or incorrect.
+The Bridge (`bridge/index.ts`) is a long-lived TypeScript process with request multiplexing via `request_id`. Go starts it once and communicates via stdin/stdout NDJSON.
+
+Request shape: `{ command, prompt, request_id, options: { model, cwd, system_prompt, resume, max_turns, permission_mode, mcp_servers, allowed_tools, disabled_tools } }`
+
+Events: `{ type: "system" | "tool_use" | "assistant" | "result" | "error" | "pong", ... }`
+
+Source: `internal/bridge/` (Go client), `bridge/index.ts` (TS process).
+
+### Agent Markdown Format
+
+Agents are defined as `.md` files with YAML frontmatter:
+
+```markdown
+---
+name: agent-name
+description: What this agent does
+model: claude-sonnet-4-6  # optional override
+schedule: "0 9 * * *"       # optional cron expression
+mcp_servers:                 # optional
+  server-name:
+    command: ...
+allowed_tools:               # optional whitelist
+  - tool_name
+---
+
+System prompt / instructions for this agent go here as the body.
+```
+
+Loaded by `internal/agents/Registry` from a configurable directory.
+
+### Config Schema
+
+Runtime config lives in `~/.aurelia/config/app.json`:
+
+```json
+{
+  "llm_provider": "anthropic",
+  "llm_model": "claude-sonnet-4-6",
+  "telegram_bot_token": "...",
+  "telegram_allowed_user_ids": [123],
+  "anthropic_api_key": "...",
+  "stt_provider": "groq",
+  "groq_api_key": "...",
+  "max_iterations": 500,
+  "max_session_tokens": 100000
+}
+```
+
+Source: `internal/config/`.
+
+### Key Packages
+
+| Package | Responsibility |
+|---------|---------------|
+| `cmd/aurelia/` | Entrypoint, wiring, onboarding |
+| `internal/bridge/` | Go client for the TS Bridge process |
+| `internal/agents/` | Agent registry (load markdown definitions) |
+| `internal/session/` | Session store and token tracking |
+| `internal/persona/` | Identity files, prompt assembly |
+| `internal/cron/` | Schedule store, scheduler, bridge-backed runtime |
+| `internal/telegram/` | Telegram bot handlers |
+| `internal/config/` | Config loading and validation |
+| `internal/runtime/` | Instance and project path resolution |
+| `bridge/` | TypeScript Bridge (Claude SDK wrapper) |
+| `pkg/stt/` | Speech-to-text |
 
 ---
 
-# Autonomy Rules
+## Workflow
 
-After plan approval, execute autonomously.
+1. **Plan** — Understand the problem, break into atomic tasks
+2. **Review** — Question the plan before executing
+3. **Execute** — One atomic task at a time, test-first
+4. **Validate** — Run tests, verify completion criteria
+5. **Commit** — Conventional Commits: `type(scope): description`
 
-Stop and ask the human when:
-
-- a decision has architectural impact not covered in the approved plan
-- requirements are ambiguous and multiple interpretations could break behavior
-- the only valid fix would violate a project rule documented here or in `docs/`
-- multiple valid approaches exist with significant tradeoffs
-
-Do not ask for permission on obvious implementation details.
-
-Do not over-communicate progress. Surface blockers, tradeoffs, and decisions that matter.
-
-Always leave the final commit to the human.
+For trivial tasks, implement directly and validate.
 
 ---
 
-# Subagents
+## Development Commands
 
-Use subagents only when they help isolate work or protect the main context.
+```bash
+go build ./...           # compile check
+go test ./... -short     # fast tests
+go test ./... -v         # full test suite
+go vet ./...             # static analysis
+```
 
-Typical use cases:
+Bridge is embedded in the Go binary via `go:embed`. To rebuild after modifying `bridge/index.ts`:
 
-- repository exploration
-- parallel research
-- isolated debugging
-- log analysis
-
-Avoid unnecessary subagent usage.
-
----
-
-# Tests And Validation
-
-Never mark a task complete without running the relevant validation.
-
-Validation loop:
-
-1. run the relevant test suite or verification command
-2. if it passes, report completion
-3. if it fails, investigate the root cause
-4. fix the root cause without violating repository rules
-5. rerun validation until green
-6. if the fix requires breaking a documented rule, stop and ask the human
-
-Do not patch symptoms.
-Fix root causes.
-
-Do not skip validation because the change "should work".
+```bash
+cd bridge && npx esbuild index.ts --bundle --platform=node --target=node18 --outfile=bundle.js --format=esm
+cp bundle.js ../internal/bridge/bundle.js
+```
 
 ---
 
-# Engineering Principles
+## Rules
 
-- simplicity first
-- consistency over cleverness
-- reliable code over fast guesses
-- explicit rules over hidden behavior
-- avoid unnecessary abstractions
-- leave the codebase in a better state than you found it
-
----
-
-# Bug Fixing
-
-Investigate bugs independently when evidence is clear.
-
-Use logs, failing tests, stack traces, and code paths to identify the root cause.
-
-Fix autonomously when the scope is well understood.
-
-If multiple risky interpretations exist, stop and ask for clarification.
+- Service layer for business logic — never in handlers or entrypoints
+- Errors treated explicitly — no silent swallowing
+- `context.Context` with timeout on external operations
+- Secrets never in repository — use `~/.aurelia/config/app.json`
+- Tests required before marking work complete
+- No new dependencies without justification
+- Prefer editing over rewriting
+- Keep interfaces small
+- Update docs when behavior changes
 
 ---
 
-# Learning Loop
+## Canonical Documentation
 
-When the human corrects an error:
-
-- identify the pattern behind the mistake
-- record the lesson in `docs/LEARNINGS.md` when it is likely to matter again
-
-Record recurring mistakes, process failures, architectural misunderstandings, and operational traps.
-
----
-
-# Project Docs
-
-Keep project documentation updated as part of execution.
-
-Canonical documents:
-
-- workflow and execution rules: `AGENTS.md`
-- architecture and technical boundaries: `docs/ARCHITECTURE.md`
-- implementation patterns and coding rules: `docs/STYLE_GUIDE.md`
-- operational lessons and recurring mistakes: `docs/LEARNINGS.md`
-
-When a new pattern or decision is established:
-
-- document it in the appropriate file before closing the task
-- keep entries concise: context, decision, rationale
-
-Do not leave decisions undocumented.
-
----
-
-# Documentation Status
-
-The documents above are the primary source of truth for ongoing work.
-
-Older files in `docs/` may continue to exist during the transition to `Aurelia`, but they should be treated as secondary references until they are migrated, merged, or retired.
-
----
-
-# Core Principles
-
-Simplicity first.
-
-Consistency over cleverness.
-
-Reliable code over fast guesses.
-
-Always leave the codebase in a better state than you found it.
+| Document | Scope |
+|----------|-------|
+| `AGENTS.md` | Agent instructions, architecture overview |
+| `docs/ARCHITECTURE.md` | Detailed architecture and boundaries |
+| `docs/STYLE_GUIDE.md` | Coding conventions and patterns |
+| `docs/LEARNINGS.md` | Operational lessons and recurring mistakes |

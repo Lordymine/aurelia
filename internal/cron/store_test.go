@@ -2,6 +2,8 @@ package cron
 
 import (
 	"context"
+	"database/sql"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
@@ -281,5 +283,48 @@ func TestSQLiteCronStore_RecordExecutionAndListExecutionsByJob(t *testing.T) {
 	}
 	if executions[0].OutputSummary != "job finished" {
 		t.Fatalf("unexpected execution summary: %q", executions[0].OutputSummary)
+	}
+}
+
+func TestDueJobsIndex(t *testing.T) {
+	store, err := NewSQLiteCronStore(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	var count int
+	err = store.db.QueryRow(
+		"SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name='idx_cron_jobs_due'",
+	).Scan(&count)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatal("expected idx_cron_jobs_due index to exist")
+	}
+}
+
+func TestWithTx(t *testing.T) {
+	store, err := NewSQLiteCronStore(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	// Verify WithTx commits on success
+	err = store.WithTx(context.Background(), func(tx *sql.Tx) error {
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("WithTx failed: %v", err)
+	}
+
+	// Verify WithTx rolls back on error
+	err = store.WithTx(context.Background(), func(tx *sql.Tx) error {
+		return fmt.Errorf("intentional error")
+	})
+	if err == nil {
+		t.Fatal("expected error from WithTx")
 	}
 }
